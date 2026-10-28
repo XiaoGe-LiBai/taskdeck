@@ -1,5 +1,5 @@
 """邮件发送：SMTP 凭据存 settings 表，管理端「系统设置 → 邮件服务」可直接改，
-未配置时只落 data/mail.log 不发信（dry-run，验证码回传前端方便本地联调）。
+未配置 SMTP 时不会发信；仅显式 mail_dev_mode 才记录正文供隔离联调。
 
 配置读取优先级（先命中先用，逐字段独立回退）：
   1. settings 表   smtp_host / smtp_port / smtp_ssl / smtp_user / smtp_password /
@@ -90,8 +90,11 @@ def send_mail(to: str, subject: str, html: str) -> dict:
 
     cfg = smtp_config()
     if not configured():
-        _log(f"[DRY-RUN] to={to} subject={subject}（未配置 SMTP，正文见下）")
-        _log(f"[DRY-RUN-BODY] {html}")
+        if core.CONFIG.get("mail_dev_mode", False):
+            _log(f"[DRY-RUN] to={to} subject={subject}（仅开发模式）")
+            _log(f"[DRY-RUN-BODY] {html}")
+        else:
+            _log("[DISABLED] 未配置 SMTP，邮件未发送，不记录正文")
         return {"sent": False, "dry_run": True, "error": ""}
 
     msg = MIMEText(html, "html", "utf-8")

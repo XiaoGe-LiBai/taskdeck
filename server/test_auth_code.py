@@ -147,7 +147,7 @@ class SendOrFailTests(AuthCodeTestBase):
 
     def test_dry_run_returns_none_and_keeps_code(self) -> None:
         self.put_code("a@x.com", code="444444")
-        with mock.patch.object(mail_module(), "send_mail",
+        with mock.patch.dict(core.CONFIG, {"mail_dev_mode": True}), mock.patch.object(mail_module(), "send_mail",
                                return_value={"sent": False, "dry_run": True, "error": ""}):
             self.assertIsNone(api_auth._send_code_or_fail("a@x.com", "444444", "register"))
         row = core.query_one("SELECT used FROM email_codes WHERE email='a@x.com'")

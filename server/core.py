@@ -24,9 +24,9 @@ import jwt
 from flask import g, jsonify, request
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+DATA_DIR = os.path.abspath(os.environ.get("PANEL_DATA_DIR") or os.path.join(BASE_DIR, "data"))
 DB_PATH = os.path.join(DATA_DIR, "panel.db")
-CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+CONFIG_PATH = os.environ.get("PANEL_CONFIG_PATH") or os.path.join(BASE_DIR, "config.json")
 
 # 自定义站点图标（管理端上传）落在这里。固定文件名、覆盖式写入 ——
 # 一次只保留一个 logo，省掉「清理旧文件」的活儿。
@@ -35,11 +35,11 @@ SITE_LOGO_PATH = os.path.join(UPLOAD_DIR, "site-logo.png")
 
 # 本地覆盖层（可选，不进版本库）：放敏感凭据，优先级高于 config.json 但低于环境变量。
 # 约定与 web 侧的 *.local.json 一致，见 小蚕网站/.gitignore。
-CONFIG_LOCAL_PATH = os.path.join(BASE_DIR, "config.local.json")
+CONFIG_LOCAL_PATH = os.environ.get("PANEL_CONFIG_LOCAL_PATH") or os.path.join(BASE_DIR, "config.local.json")
 
 CN_TZ = timezone(timedelta(hours=8))
 
-# 出厂默认管理员口令：只在「首次建库」时使用；上线前必须改（tools/set_admin_password.py）
+# 仅用于识别旧部署的默认口令，不参与新管理员创建。
 DEFAULT_ADMIN_PASSWORD = "admin12345"
 
 # 出厂站点名称：只是「settings 表里还没写过 site_name」时的兜底值。
@@ -50,10 +50,11 @@ DEFAULT_SITE_NAME = "托管鸭"
 DEFAULT_CONFIG = {
     "host": "0.0.0.0",
     "port": 8100,                # 与 run.sh / 前端 PANEL_API_URL 保持同一口径
-    "secret_key": "",            # 首次启动自动生成并写回 config.json
+    "secret_key": "",            # 自动生成并保存在 data/runtime-secrets.json
     "token_ttl_seconds": 7200,   # 与原站一致：2 小时
-    "admin_email": "admin@example.com",
-    "admin_password": DEFAULT_ADMIN_PASSWORD,  # 仅首次建库时使用
+    "admin_email": "",
+    "admin_password": "",       # 同时显式配置才自动创建，否则走一次性安装向导
+    "mail_dev_mode": False,      # 正式镜像不回显验证码
     "runner_key": "",            # 青龙 runner 回调本站用的内部密钥
     "register_require_code": False,  # true 时注册必须填邮箱验证码
 }
@@ -116,7 +117,7 @@ def _set_nested(cfg: dict, path: tuple, value) -> None:
 def _apply_env(cfg: dict) -> None:
     """环境变量覆盖（优先级最高）。转换失败的值忽略，不污染配置。"""
     for env_key, field, cast in _ENV_FLAT:
-        raw = _env_str(env_key)
+        raw = os.getenv(env_key, "") if field == "admin_password" else _env_str(env_key)
         if not raw:
             continue
         try:
@@ -134,37 +135,17 @@ def _apply_env(cfg: dict) -> None:
 
 
 def load_config() -> dict:
-    """三级合并：DEFAULT_CONFIG ← config.json ← config.local.json ← 环境变量。
+    """配置与环境变量可覆盖；自动生成的密钥保存到数据卷，重建容器不轮换。"""
+    from runtime_config import persistent_keys
 
-    只有「自动生成的密钥」会回填 config.json；来自 config.local.json 或环境变量的
-    敏感值一律不落盘，避免把凭据写回可能被同步/提交的文件。
-    """
     cfg = dict(DEFAULT_CONFIG)
     cfg.update(_read_json(CONFIG_PATH))
     cfg.update(_read_json(CONFIG_LOCAL_PATH))
+    saved = persistent_keys(DATA_DIR, cfg)
+    for key in ("secret_key", "runner_key"):
+        cfg[key] = cfg.get(key) or saved[key]
     _apply_env(cfg)
-
-    generated: dict = {}
-    if not cfg.get("secret_key"):
-        cfg["secret_key"] = secrets.token_hex(32)
-        generated["secret_key"] = cfg["secret_key"]
-    if not cfg.get("runner_key"):
-        cfg["runner_key"] = secrets.token_hex(16)
-        generated["runner_key"] = cfg["runner_key"]
-
-    if generated or not os.path.exists(CONFIG_PATH):
-        # 保留 config.json 里已有的其它字段，只回填新生成的密钥
-        merged = _read_json(CONFIG_PATH)
-        merged.update(generated)
-        try:
-            with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
-                json.dump(merged, fh, ensure_ascii=False, indent=2)
-        except OSError:
-            pass
     return cfg
-
-
-DEFAULT_ADMIN_PASSWORD = "admin12345"
 
 
 def admin_password_is_default() -> bool:

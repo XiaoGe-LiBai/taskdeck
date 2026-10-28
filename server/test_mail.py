@@ -111,7 +111,8 @@ class SendTests(MailTestBase):
     """send_mail 的四条路径：dry-run / 成功 / 重试后成功 / 全部失败。"""
 
     def test_dry_run_writes_log_and_reports(self) -> None:
-        result = mail.send_mail("to@x.com", "标题", "<p>正文</p>")
+        with mock.patch.dict(core.CONFIG, {"mail_dev_mode": True}):
+            result = mail.send_mail("to@x.com", "标题", "<p>正文</p>")
         self.assertFalse(result["sent"])
         self.assertTrue(result["dry_run"])
         self.assertEqual(result["error"], "")
@@ -195,7 +196,7 @@ class SendTests(MailTestBase):
     def test_send_code_keeps_bool_contract(self) -> None:
         """api_auth 只依赖布尔返回，这个契约不能破。"""
         self.assertFalse(mail.send_code("to@x.com", "123456"))  # 未配置 → dry-run → False
-        self.assertTrue(any("123456" in line for line in self.log_lines()))
+        self.assertFalse(any("123456" in line for line in self.log_lines()))
 
     def test_code_html_contains_code_and_validity(self) -> None:
         html = mail.code_html("654321", minutes=30)

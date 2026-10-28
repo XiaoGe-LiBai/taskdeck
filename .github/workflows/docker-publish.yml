@@ -1,4 +1,4 @@
-name: Build and push Docker image
+name: Build, verify and publish Docker image
 
 on:
   push:
@@ -8,12 +8,18 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# 同一分支连续推送时，旧版本不得晚于新版本覆盖 latest。
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
 
 jobs:
   docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -21,16 +27,45 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # repos/ 是 submodule（应用宝脚本），镜像构建需要它们的实际内容
           submodules: recursive
 
-      # GHCR 镜像名必须小写，github.repository 可能含大写
       - name: Resolve image name
         id: image
         run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=sha,format=long
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # 先构建到 runner；测试后推送同一个镜像，不重新构建另一份产物。
+      - name: Build candidate
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: taskdeck:ci
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VCS_REF=${{ github.sha }}
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify exact candidate
+        run: |
+          test "$(docker image inspect taskdeck:ci --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$GITHUB_SHA"
+          python3 docker/verify-image.py taskdeck:ci
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
@@ -40,25 +75,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          # 需要 ARM（树莓派/NAS）时改成：linux/amd64,linux/arm64
-          platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Publish verified image
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            docker tag taskdeck:ci "$tag"
+            docker push "$tag"
+          done <<< "$IMAGE_TAGS"

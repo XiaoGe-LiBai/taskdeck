@@ -1,41 +1,29 @@
+name: taskdeck
+
 services:
   xiaocan-panel:
     image: ghcr.io/xiaoge-libai/taskdeck:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
     container_name: taskdeck
     restart: unless-stopped
     ports:
-      # 只需要网页端口；8100 是容器内的后端，暴露出来便于直接调试 API
       - "3001:3001"
-      - "8100:8100"
+      # 8100 仅供明确需要后端直连的 runner/反向代理使用，不要默认暴露公网。
+      # - "127.0.0.1:8100:8100"
     environment:
       TZ: Asia/Shanghai
-      # 首次启动时初始化管理员；不设则用 config.example.json 的 admin@example.com / admin12345
-      # PANEL_ADMIN_EMAIL: admin@example.com
-      # PANEL_ADMIN_PASSWORD: change-me
-      # PANEL_SECRET_KEY: change-me
-      # 青龙 / 应用宝对接（也可在后台页面里配置）
-      # YYB_URL: http://127.0.0.1:5844
-      # YYB_USERNAME: ""
-      # YYB_PASSWORD: ""
-      # QL_URL: http://127.0.0.1:5700
-      # QL_CLIENT_ID: ""
-      # QL_CLIENT_SECRET: ""
+      # 不设置账号时走 /setup，初始化码从容器启动日志读取。
+      # 无人值守部署可同时设置以下两个变量，仅空库首次生效：
+      # PANEL_ADMIN_EMAIL: ${PANEL_ADMIN_EMAIL:?请设置管理员邮箱}
+      # PANEL_ADMIN_PASSWORD: ${PANEL_ADMIN_PASSWORD:?请设置12至128位密码}
+      THREADS: "4"
+      # WORKERS 必须为 1，扫码会话暂不支持跨进程共享。
     volumes:
-      # SQLite 数据库、上传的站点图标、日志
+      # 必须挂整个目录：数据库、上传图标、安装状态、运行密钥、日志。
       - xiaocan-data:/app/server/data
-      # 需要放敏感配置时，把 config.local.json 放项目根再取消注释
+      # 可选旧配置迁移/敏感配置覆盖，文件必须提前存在：
       # - ./server/config.local.json:/app/server/config.local.json:ro
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - curl -fsS http://127.0.0.1:8100/healthz >/dev/null && curl -fsS http://127.0.0.1:3001/ >/dev/null
-      interval: 30s
-      timeout: 5s
-      start_period: 60s
-      retries: 3
+    # 使用宿主目录时可设置 user: "1000:1000"，并确保目录属于相同 UID/GID。
+    # 命名卷默认使用镜像内 appuser（10001:10001），勿用 chmod 777。
 
 volumes:
   xiaocan-data:

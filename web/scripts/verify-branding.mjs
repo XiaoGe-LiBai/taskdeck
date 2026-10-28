@@ -14,6 +14,7 @@
  * 前置：前后端都在跑（web 3001 / server 8100）。
  * 用法：node scripts/verify-branding.mjs [baseUrl] [apiUrl]
  */
+/* eslint-disable unicorn/prefer-dom-node-text-content -- 验证用户可见文本，不能包含隐藏节点 */
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +26,10 @@ mkdirSync(OUT, { recursive: true });
 
 const BASE = (process.argv[2] ?? 'http://127.0.0.1:3001').replace(/\/$/, '');
 const API = (process.argv[3] ?? 'http://127.0.0.1:8100').replace(/\/$/, '');
-const ADMIN = ['admin@example.com', 'admin12345'];
+const ADMIN = [process.env.TEST_ADMIN_EMAIL, process.env.TEST_ADMIN_PASSWORD];
+if (ADMIN.some(value => !value)) {
+  throw new Error('请设置独立测试环境的 TEST_ADMIN_EMAIL 和 TEST_ADMIN_PASSWORD');
+}
 
 /** 历史上用过的站名：任何一个出现在页面上，都说明又有地方写死了 */
 const LEGACY_NAMES = ['任务托管面板', '我中了大牌券助手', '多项目面板', '小蚕抢券面板'];
@@ -122,7 +126,9 @@ const run = async () => {
     asideText = await page.locator('aside').innerText();
     check('后台侧栏显示当前站名', asideText.includes(original));
     check('后台标签页标题', (await page.title()).includes(original), await page.title());
-    await page.screenshot({ path: `${OUT}/站名-01-后台侧栏.png`, fullPage: false });
+    if (process.env.TEST_NO_SCREENSHOTS !== '1') {
+      await page.screenshot({ path: `${OUT}/站名-01-后台侧栏.png`, fullPage: false });
+    }
 
     /* ---- 移动端抽屉 ---- */
     const mctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN' });
@@ -134,7 +140,9 @@ const run = async () => {
     await mPage.waitForTimeout(400);
     drawerText = await mPage.locator('[role="dialog"]').innerText();
     check('移动端抽屉显示当前站名', drawerText.includes(original));
-    await mPage.screenshot({ path: `${OUT}/站名-02-移动端抽屉.png`, fullPage: false });
+    if (process.env.TEST_NO_SCREENSHOTS !== '1') {
+      await mPage.screenshot({ path: `${OUT}/站名-02-移动端抽屉.png`, fullPage: false });
+    }
 
     await mctx.close();
     await ctx.close();

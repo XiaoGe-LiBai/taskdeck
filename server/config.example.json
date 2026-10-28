@@ -12,9 +12,10 @@
   "port": 8100,
   "secret_key": "",
   "token_ttl_seconds": 7200,
-  "admin_email": "admin@example.com",
-  "admin_password": "admin12345",
+  "admin_email": "",
+  "admin_password": "",
   "runner_key": "",
+  "mail_dev_mode": false,
   "register_require_code": true,
 
   "smtp": {

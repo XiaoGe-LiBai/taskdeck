@@ -1,15 +1,15 @@
-# syntax=docker/dockerfile:1
+# 使用 Docker 内置构建语法，无需额外拉取语法前端镜像。
 #
 # 小蚕任务托管平台 · 单镜像（Next.js 前端 + Flask 后端）
 #
 #   docker build -t xiaocan-panel .
 #   docker run -d -p 3001:3001 -v xiaocan-data:/app/server/data xiaocan-panel
 #
-# 前后端在同一个容器内：Flask 监听 127.0.0.1:8100（仅容器内），
+# 前后端在同一个容器内：Flask 监听 8100（默认不映射到宿主），
 # Next.js 监听 0.0.0.0:3001（对外）。外部只需暴露 3001。
 
 # ---------------------------------------------------------------- 前端构建
-FROM node:24-bookworm-slim AS web-builder
+FROM node:24-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS web-builder
 
 WORKDIR /app/web
 
@@ -28,7 +28,11 @@ ENV NODE_ENV=production \
 RUN npm run build
 
 # ---------------------------------------------------------------- 运行时
-FROM node:24-bookworm-slim AS runtime
+FROM node:24-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS runtime
+
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.source="https://github.com/XiaoGe-LiBai/taskdeck" \
+      org.opencontainers.image.revision="${VCS_REF}"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     NODE_ENV=production \
@@ -79,8 +83,8 @@ EXPOSE 3001 8100
 VOLUME ["/app/server/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:8100/healthz >/dev/null \
-   && curl -fsS http://127.0.0.1:3001/ >/dev/null || exit 1
+  CMD curl --max-time 2 -fsS "http://127.0.0.1:${PANEL_PORT:-8100}/healthz" >/dev/null \
+   && curl --max-time 2 -fsS "http://127.0.0.1:${PORT:-3001}/sign-in" >/dev/null || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/usr/local/bin/start.sh"]

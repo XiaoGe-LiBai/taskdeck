@@ -29,8 +29,24 @@ function readRole(request: NextRequest): string {
   }
 }
 
-export default function proxy(request: NextRequest) {
+export default async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  // 只检查页面 GET；安装是否完成以数据库为准，不能靠 cookie 或进程缓存。
+  if (request.method === 'GET' && !pathname.startsWith('/api/') && pathname !== '/site-icon') {
+    try {
+      const base = process.env.PANEL_API_URL ?? 'http://127.0.0.1:8100';
+      const response = await fetch(`${base}/api/setup`, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
+      const result = await response.json();
+      if (response.ok && result.code === 200 && result.data?.initialized === false && pathname !== '/setup') {
+        return NextResponse.redirect(new URL('/setup', request.url));
+      }
+      if (response.ok && result.code === 200 && result.data?.initialized === true && pathname === '/setup') {
+        return NextResponse.redirect(new URL('/sign-in', request.url));
+      }
+    } catch {
+      // 状态未知不展示安装表单；业务 API 的独立守卫仍拒绝未初始化请求。
+    }
+  }
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
 
   // 未登录访问面板 → 跳登录页（带上回跳地址）

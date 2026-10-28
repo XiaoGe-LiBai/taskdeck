@@ -15,7 +15,7 @@ import { signInAction } from './actions';
  * 一个后台、一个入口：小蚕与应用宝两个业务模块对所有登录用户开放，
  * 不做渠道分墙（账号的 channel 只是数据归属，不限制登录与访问）。
  */
-export const SignInForm = (props: { redirectUrl?: string; siteName: string; logoUrl?: string }) => {
+export const SignInForm = (props: { redirectUrl?: string; siteName: string; logoUrl?: string; setupComplete?: boolean }) => {
   const [state, formAction, pending] = useActionState<AuthActionState, FormData>(
     signInAction,
     {},
@@ -37,6 +37,11 @@ export const SignInForm = (props: { redirectUrl?: string; siteName: string; logo
         </div>
       </div>
 
+      {props.setupComplete && (
+        <p role="status" className="mb-4 rounded-md bg-primary/10 p-3 text-sm">
+          管理员已创建，请使用刚设置的邮箱和密码登录。
+        </p>
+      )}
       <form action={formAction} className="flex flex-col gap-4">
         <input type="hidden" name="redirect_url" value={props.redirectUrl ?? ''} />
 

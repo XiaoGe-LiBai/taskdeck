@@ -46,7 +46,7 @@ def _load_accounts() -> list:
 def list_accounts() -> int:
     rows = _load_accounts()
     if not rows:
-        print("库里还没有任何账号，先启动一次后端（会自动建库并写入默认管理员）。")
+        print("库里还没有账号，请启动后端后在网页 /setup 完成一次性初始化。")
         return 0
     print(f"{'ID':>5}  {'渠道':<8} {'角色':<7} {'邮箱':<32} 昵称")
     print("-" * 78)

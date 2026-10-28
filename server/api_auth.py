@@ -1,7 +1,7 @@
 """/api/auth/*：登录、注册、找回、资料、改密、通知开关。"""
 from __future__ import annotations
 
-import random
+import secrets
 from datetime import timedelta
 
 from flask import Blueprint, request
@@ -48,15 +48,15 @@ def _send_code_or_fail(email: str, code: str, purpose: str, minutes: int = 10) -
     """发码。返回 None 表示已成功发出（或 dry-run 回显），否则返回给前端的失败体。
 
     - 真发出：{sent: true, dev_code: null}
-    - 没配 SMTP：{sent: true, dev_code: <码>, dry_run: true}，本地联调用（见 README）
-    - 配了但发失败：core.fail(...)，并把这条码作废，避免留下一堆「发不出去却有效」的码
+    - 显式开发模式且没配 SMTP：允许 dry-run 回显，仅供隔离联调
+    - 正式模式未配置或投递失败：core.fail(...)，并作废该码
     """
     title = {"register": "注册验证码", "reset": "找回密码验证码", "email_change": "换绑邮箱验证码"}.get(purpose, "验证码")
     result = mail.send_mail(email, f"{title} · {core.site_name()}",
                             mail.code_html(code, minutes))
     if result["sent"]:
         return None
-    if result["dry_run"]:
+    if result["dry_run"] and core.CONFIG.get("mail_dev_mode", False):
         return None
     core.execute("UPDATE email_codes SET used=1 WHERE email=? AND purpose=? AND code=? AND used=0",
                  (email, purpose, code))
@@ -144,7 +144,7 @@ def register_code():
     if _code_throttled(email, "register"):
         return core.fail("发送太频繁了，请 60 秒后再试")
 
-    code = "%06d" % random.randint(0, 999999)
+    code = "%06d" % secrets.randbelow(1000000)
     core.insert(
         "email_codes",
         {
@@ -160,7 +160,7 @@ def register_code():
     if failure is not None:
         return failure
     # 未配置 SMTP 时把验证码回传给前端（仅开发用；配置邮件后自动隐藏）
-    return core.ok({"sent": True, "dev_code": None if mail.configured() else code, "retry_after": _CODE_MIN_INTERVAL_SECONDS})
+    return core.ok({"sent": True, "dev_code": code if core.CONFIG.get("mail_dev_mode", False) and not mail.configured() else None, "retry_after": _CODE_MIN_INTERVAL_SECONDS})
 
 
 @bp.post("/register")
@@ -234,7 +234,7 @@ def reset_password():
         return core.fail("该邮箱今日获取验证码次数过多，请明天再试")
     if _code_throttled(email, "reset"):
         return core.fail("发送太频繁了，请 60 秒后再试")
-    code = "%06d" % random.randint(0, 999999)
+    code = "%06d" % secrets.randbelow(1000000)
     core.insert(
         "email_codes",
         {
@@ -249,7 +249,7 @@ def reset_password():
     failure = _send_code_or_fail(email, code, "reset", minutes=30)
     if failure is not None:
         return failure
-    return core.ok({"sent": True, "dev_code": None if mail.configured() else code})
+    return core.ok({"sent": True, "dev_code": code if core.CONFIG.get("mail_dev_mode", False) and not mail.configured() else None})
 
 
 @bp.post("/reset-password/confirm")
@@ -337,7 +337,7 @@ def email_change_code():
     if _code_throttled(new_email, "email_change"):
         return core.fail("发送太频繁了，请 60 秒后再试")
 
-    code = "%06d" % random.randint(0, 999999)
+    code = "%06d" % secrets.randbelow(1000000)
     core.insert(
         "email_codes",
         {
@@ -352,7 +352,7 @@ def email_change_code():
     failure = _send_code_or_fail(new_email, code, "email_change", minutes=10)
     if failure is not None:
         return failure
-    return core.ok({"sent": True, "dev_code": None if mail.configured() else code})
+    return core.ok({"sent": True, "dev_code": code if core.CONFIG.get("mail_dev_mode", False) and not mail.configured() else None})
 
 
 @bp.put("/email")

@@ -21,7 +21,7 @@ python3 smoke_test.py                # 87 项全链路冒烟测试（默认打 :
 
 ### 初始口令（重要）
 
-默认管理员 `admin@example.com / admin12345` **仅首次建库时使用**。改口令不用删库：
+新部署没有默认管理员；启动日志提供一次性安装码，在前端 `/setup` 创建管理员。也可同时配置管理员邮箱与密码进行无人值守初始化。详见[部署说明](../README.md)。已有管理员不被覆盖，改口令不用删库：
 
 ```bash
 python3 tools/set_admin_password.py                 # 改 config.json 里 admin_email 那个账号（交互输入口令）
@@ -50,8 +50,8 @@ DEFAULT_CONFIG ← config.json ← config.local.json ← 环境变量
 `PANEL_PORT / PANEL_SECRET_KEY / PANEL_ADMIN_PASSWORD / PANEL_RUNNER_KEY`、
 `YYB_URL / YYB_USERNAME / YYB_PASSWORD`、`QL_URL / QL_CLIENT_ID / QL_CLIENT_SECRET`。
 
-> 自动生成的 `secret_key` / `runner_key` 仍会回填 `config.json`；
-> 来自 `config.local.json` 或环境变量的值**不会**被写回磁盘。
+> 自动生成的密钥以及首次迁入的旧配置密钥保存在数据卷 `runtime-secrets.json`；
+> 配置文件不会被写回；环境变量只在运行时覆盖，后续启动须继续提供相同值。
 
 ## 目录
 
@@ -75,7 +75,7 @@ server/
 ├─ xiaocan_tasks.py     小蚕任务目录、托管判定、多面板日志聚合
 ├─ xiaocan_bridge.py    账号序列化、功能开关、账号数据导出、绑定、抢兑设置
 ├─ runner_dispatch.py   报名/抢兑派发到青龙、runner 拉取账号数据
-├─ mail.py              邮件发送：SMTP 凭据存 settings 表，没配就写 data/mail.log 并把验证码回传前端
+├─ mail.py              邮件模板与 SMTP；生产默认不回显验证码
 ├─ smoke_test.py        全链路冒烟测试
 ├─ test_mail.py         SMTP 配置/发信单测（32 项离线单测之一）
 ├─ test_auth_code.py    验证码节流/作废/重放单测
@@ -164,7 +164,7 @@ curl -s -X POST -H "X-Runner-Key: $KEY" -H 'Content-Type: application/json' \
 
 ```bash
 python3 -m unittest test_mail test_auth_code   # 33 项离线单测（临时 SQLite，不碰 data/panel.db）
-python3 smoke_test.py [base_url]               # 87 项全链路冒烟（默认 :8100；对生产库跑会写测试数据，建议先拷库）
+python3 test_installation.py                   # 推荐：隔离临时数据，覆盖安装/密钥/邮件，不依赖默认管理员
 ```
 
 冒烟覆盖：管理员登录、后台 12 个页面接口、面板 CRUD 与离线检测、公告版本自增、SMTP 设置入库与授权码不回传、发信自检（未配置走 dry-run）、注册发码/节流/验证码错误、注册登录改密、
@@ -194,7 +194,7 @@ SMTP 凭据放在 **settings 表**，后台「系统设置 → 邮件服务」�
 
 **自检**：后台填好点「发送测试邮件」= 先保存当前表单，再真发一封；失败会把 SMTP 原始报错（如 `SMTPAuthenticationError: 535`）原样显示在页面上，不用去翻日志。对应的 `POST /api/admin/settings/mail-test` 返回 `{sent, dry_run, error}`，永远 HTTP 200，便于脚本断言。
 
-**没配 SMTP 时的行为**（本地联调通道）：`mail.send_mail` 不连外网，只把邮件正文写进 `data/mail.log`，`/api/auth/register/code` 会把验证码放进 `dev_code` 回传给前端，注册页会提示「开发模式（后端未配置 SMTP），验证码：xxxxxx」。**一旦配上 host + 账号 + 授权码，`dev_code` 自动变 null，回显通道消失。**
+**未配 SMTP 时**：生产模式发码请求失败、验证码作废，不回显验证码，也不记录正文。仅显式设置 `mail_dev_mode: true` 的隔离开发实例允许 dry-run、记录正文并返回 `dev_code`；配置 SMTP 后不再回显。
 反过来，如果 host/账号/授权码都填了但发信失败（授权码错、被限流），接口返回「验证码发送失败」并作废这条码，**不会**悄悄退回回显验证码。
 
 ### 发码限次与验证码规则
@@ -206,7 +206,7 @@ SMTP 凭据放在 **settings 表**，后台「系统设置 → 邮件服务」�
 | 单条验证码错误次数上限 | 5 次（超过作废，必须重新发码） | `api_auth._CODE_MAX_ATTEMPTS` |
 | 验证码有效期 | 注册 10 分钟 / 找回 30 分钟 | `api_auth` |
 
-`config.json` 的 `register_require_code: true` 表示**注册必须带验证码**（默认已开）；置回 `false` 可临时关掉。
+`config.json` 的 `register_require_code: true` 表示**注册必须带验证码**（示例模板开启，内置默认关闭）；置回 `false` 可关掉。
 发信失败重试 2 次、间隔 1 秒（参考脚本是 3 次 / 15 秒，那是监控循环等得起，HTTP 里会把注册请求拖死）。
 
 ### 注册表单流程
@@ -218,7 +218,7 @@ SMTP 凭据放在 **settings 表**，后台「系统设置 → 邮件服务」�
 
 1. 扫码绑定默认关闭（需小蚕 RPC 方法名），改为粘贴绑定；接口与页面结构不变。
 2. 抢兑奖品列表需要真实小蚕接口，由 runner 通过 `type=prizes` 回填。
-3. 邮件走后台配置的 SMTP（`settings` 表）；没配 SMTP 时验证码写 `data/mail.log` 并回传前端，注册仍能在本地跑通。
+3. 邮件走后台 SMTP；生产默认禁止 dry-run 回显，只有显式开发模式可离线联调。
 4. `access_token` 返回给前端（账号卡片「更新数据」要用），本服务保持一致以便前端原样复用；
    若要收紧，可在 `xiaocan_bridge.serialize_account` 里去掉该字段并改造账号卡片。
 5. 不再托管老版 Vue SPA，`/`、`/assets/*`、`/css/*`、`/js/*` 等静态路由整体移除，只保留 `/api/*` 与 `/healthz`。

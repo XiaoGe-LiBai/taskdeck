@@ -12,10 +12,15 @@
  * 前置：前后端都在跑（web 3001 / server 8100），且用默认管理员账号。
  * 用法：node scripts/verify-site-logo.mjs [baseUrl]
  */
+/* eslint-disable unicorn/prefer-dom-node-text-content -- 验证用户可见文本，不能包含隐藏节点 */
+import { Buffer } from 'node:buffer';
 import { chromium } from '@playwright/test';
 
 const BASE = (process.argv[2] ?? 'http://127.0.0.1:3001').replace(/\/$/, '');
-const ADMIN = ['admin@example.com', 'admin12345'];
+const ADMIN = [process.env.TEST_ADMIN_EMAIL, process.env.TEST_ADMIN_PASSWORD];
+if (ADMIN.some(value => !value)) {
+  throw new Error('请设置独立测试环境的 TEST_ADMIN_EMAIL 和 TEST_ADMIN_PASSWORD');
+}
 
 /** 64×40 的橙紫双色 PNG —— 够小（172 字节 base64），也够辨识 */
 const TEST_PNG_BASE64

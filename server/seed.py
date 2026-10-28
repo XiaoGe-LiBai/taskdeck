@@ -158,41 +158,9 @@ def ensure_seed() -> None:
             },
         )
 
-    admin_email = core.CONFIG.get("admin_email") or "admin@example.com"
-    row = core.query_one("SELECT * FROM users WHERE role='admin' ORDER BY id LIMIT 1")
-    if not row:
-        core.insert(
-            "users",
-            {
-                "email": admin_email,
-                "password_hash": core.hash_password(core.CONFIG.get("admin_password") or "admin12345"),
-                "nickname": "管理员",
-                "role": "admin",
-                "status": "normal",
-                "points_balance": 0,
-                "points_spent": 0,
-                "invite_code": core.gen_invite_code(),
-                "inviter_id": None,
-                "email_notify": 1,
-                "slot_total": 0,
-                "slot_used": 0,
-                "last_login_ip": "",
-                "last_login_time": None,
-                "created_time": now,
-            },
-        )
-    else:
-        # 管理员密码被重置时同步 config.json 里的口令
-        pass
-
-    grant_admin_balance()
-
-
-def grant_admin_balance() -> None:
-    """给管理员一个可测试的初始积分（仅当余额为 0 时）。"""
-    row = core.query_one("SELECT * FROM users WHERE role='admin' ORDER BY id LIMIT 1")
-    if row and int(row["points_balance"]) == 0:
-        core.add_points(int(row["id"]), 100000, "admin_adjust", "初始化测试积分")
+    # 管理员不再属于演示种子数据；空库走安装向导，已有管理员不覆盖。
+    import bootstrap
+    bootstrap.prepare()
 
 
 if __name__ == "__main__":
