@@ -55,3 +55,6 @@ docs/
 
 # 录屏素材，只保留在本机
 PixPin_*.mp4
+
+# Docker 部署测试数据（SQLite 库、上传文件、日志）
+docker/test/
