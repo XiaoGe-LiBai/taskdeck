@@ -18,12 +18,12 @@ mkdirSync(OUT, { recursive: true });
 const BASE = (process.argv[2] ?? 'http://127.0.0.1:3001').replace(/\/$/, '');
 const ADMIN = ['admin@example.com', 'admin12345'];
 
-// 与 server/config.json 的 qinglong 段一致（仅测试用，测完删除面板）
+// 从环境变量读取，不要把真实凭据写进仓库
 const TEST_PANEL = {
   name: `E2E 青龙 ${Date.now()}`,
-  url: 'http://127.0.0.1:5700',
-  client_id: 'your-client-id',
-  client_secret: 'your-client-secret',
+  url: process.env.QL_URL || 'http://127.0.0.1:5700',
+  client_id: process.env.QL_CLIENT_ID || '',
+  client_secret: process.env.QL_CLIENT_SECRET || '',
 };
 
 let failed = 0;
