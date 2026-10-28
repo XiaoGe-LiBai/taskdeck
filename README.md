@@ -93,14 +93,14 @@ DEFAULT_CONFIG ← config.json ← config.local.json ← 环境变量
 镜像由 `.github/workflows/docker-publish.yml` 在 push 到 `main` 时自动构建并推送到 GHCR。
 
 ```bash
-# 镜像地址：ghcr.io/<GitHub 用户名>/<仓库名>:latest（全小写）
-docker pull ghcr.io/OWNER/REPO:latest
+# 镜像地址（GHCR，全小写）
+docker pull ghcr.io/xiaoge-libai/taskdeck:latest
 
 docker run -d --name xiaocan-panel \
   -p 3001:3001 \
   -v xiaocan-data:/app/server/data \
   -e PANEL_ADMIN_PASSWORD='上线前务必改掉' \
-  ghcr.io/OWNER/REPO:latest
+  ghcr.io/xiaoge-libai/taskdeck:latest
 ```
 
 打开 `http://localhost:3001`。首次启动会用 `server/config.example.json` 生成

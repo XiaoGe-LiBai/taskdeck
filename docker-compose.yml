@@ -1,10 +1,10 @@
 services:
   xiaocan-panel:
-    image: ghcr.io/OWNER/REPO:latest
+    image: ghcr.io/xiaoge-libai/taskdeck:latest
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: xiaocan-panel
+    container_name: taskdeck
     restart: unless-stopped
     ports:
       # 只需要网页端口；8100 是容器内的后端，暴露出来便于直接调试 API
