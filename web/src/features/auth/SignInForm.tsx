@@ -93,15 +93,6 @@ export const SignInForm = (props: { redirectUrl?: string; siteName: string; logo
           注册
         </Link>
       </div>
-
-      <div className="
-        mt-3 space-y-1 rounded-md bg-muted/40 px-3 py-2 text-[11px]
-        text-muted-foreground
-      "
-      >
-        <div>演示账号 · 管理员：admin@example.com / admin12345</div>
-        <div>演示账号 · 普通用户：demo@example.com / demo12345</div>
-      </div>
     </SpotlightCard>
   );
 };
