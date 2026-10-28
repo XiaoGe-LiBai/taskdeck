@@ -58,6 +58,9 @@ COPY --from=web-builder /app/web/.next/standalone/ /app/web/
 COPY --from=web-builder /app/web/.next/static/ /app/web/.next/static/
 COPY --from=web-builder /app/web/public/ /app/web/public/
 
+# standalone 会带上构建机的 .env，删掉；运行时用容器环境变量
+RUN rm -f /app/web/.env
+
 # 外部脚本仓库（server/bindings.py 的 DEFAULT_REPO_MAP 指向 /app/repos/*）
 COPY repos/ /app/repos/
 
