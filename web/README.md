@@ -1,7 +1,7 @@
 # 任务托管平台 · 前端（Next.js）
 
 基于 [ixartz/SaaS-Boilerplate](https://github.com/ixartz/SaaS-Boilerplate)（Next.js 16 + React 19 + Tailwind 4 + shadcn/ui）
-改造的**多项目**任务托管面板：小蚕（大牌券）与应用宝（YYB 协议服务）两个项目共用一套后台与权限。
+**多项目**任务托管面板：小蚕（大牌券）与应用宝（YYB 协议服务）两个项目共用一套后台与权限。
 
 数据与写操作全部落到 `../server`（Flask + SQLite）真实接口，本层只做 BFF + 视图。
 

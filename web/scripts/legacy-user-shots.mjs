@@ -1,5 +1,5 @@
 /**
- * 老版 SPA（archive/复刻版-legacy-frontend，端口 8100）的「普通用户视角」截图。
+ * 老版 SPA（archive/legacy-frontend，端口 8100）的「普通用户视角」截图。
  *
  * 用法：node scripts/legacy-user-shots.mjs [baseUrl]
  * 默认用演示用户 demo@example.com / demo12345 登录，逐个用户端页面截图。

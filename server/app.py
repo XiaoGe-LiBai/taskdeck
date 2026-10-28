@@ -2,7 +2,7 @@
 
 UI 的唯一入口是 Next.js（../web），本服务是纯后端：
 - 不托管静态资源、不渲染模板、不做 SPA 回退（老版 Vue SPA 已退役，
-  资源留在 ../archive/复刻版-legacy-frontend 仅供查考）；
+  资源留在 ../archive/legacy-frontend 仅供查考）；
 - /api/* 之外的路径不归本服务管（由 Next 或前置网关负责），
   未匹配的 /api/* 仍按原站契约返回 {"code":404,"msg":"page not found"}。
 

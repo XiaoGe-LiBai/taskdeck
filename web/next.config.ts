@@ -14,7 +14,7 @@ const baseConfig: NextConfig = {
     browserToTerminal: process.env.BROWSER_TO_TERMINAL_DISABLED !== 'true',
   },
   // 本地用 127.0.0.1 / 局域网 IP 访问开发服务器时，允许 Next 开发资源跨源
-  allowedDevOrigins: ['127.0.0.1', 'localhost', '127.0.0.1'],
+  allowedDevOrigins: ['127.0.0.1', 'localhost'],
   // Docker 构建时设为 standalone，产出可独立运行的 .next/standalone（镜像无需 node_modules）
   output: process.env.NEXT_OUTPUT_STANDALONE === 'true' ? 'standalone' : undefined,
 };

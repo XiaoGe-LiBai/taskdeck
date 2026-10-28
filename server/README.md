@@ -1,15 +1,14 @@
 # 任务托管平台 · 后端 API（server/）
 
-小蚕（大牌券）与应用宝（YYB 协议服务）两个项目的自建后端：**Flask + SQLite，零构建**，
+对接小蚕（大牌券）与应用宝（YYB 协议服务）两个业务的后端：**Flask + SQLite，零构建**，
 对外只提供 `/api/*`，UI 由 `../web`（Next.js）提供。
 
-前端不再由本服务托管：老版 Vue SPA（static/templates）已退役，
-资源留在 `../archive/复刻版-legacy-frontend` 仅供查考。
+前端不再由本服务托管：老版 Vue SPA（static/templates）已退役。
 
 ## 快速开始
 
 ```bash
-cd 小蚕网站/server
+cd server
 pip install -r requirements.txt      # flask / PyJWT / requests（qrcode+pillow 可选）
 python3 seed.py                      # 初始化数据库与种子数据（app.py 启动时也会自动执行）
 ./run.sh                             # 开发模式，端口取 config.json（默认 http://0.0.0.0:8100）
@@ -86,7 +85,7 @@ server/
 └─ data/panel.db        SQLite（首次启动生成，含 WAL）—— 生产库，勿删，勿提交
 ```
 
-## 关键契约（与原站一致）
+## 关键契约
 
 - 响应体 `{"code":200,"data":...,"msg":"success"}`，HTTP 状态码恒 200；未匹配的 `/api/*` 返回 `code:404 / msg:"page not found"`。
 - JWT（HS256，载荷 `user_id/role/iat/exp/jti/token_version`，默认 2 小时）放在 `Authorization: Bearer`。
@@ -98,7 +97,7 @@ server/
 
 ## 账号绑定
 
-原站走「小蚕 RPC 取微信开放平台 uuid → 用户微信扫码 → 轮询拿 token」。本服务两条路：
+扫码绑定走「小蚕 RPC 取微信开放平台 uuid → 用户微信扫码 → 轮询拿 token」。本服务两条路：
 
 1. **手动粘贴绑定**（默认可用）：绑定页填一整段账号数据，多账号 `@` 分隔；后端自动解析 JWT 里的 `exp` 与 `UserId` 填 `token_expire` / `xc_user_id`。
    也可以直接把后台「账号数据」页导出的整段文本粘进去。
@@ -133,7 +132,7 @@ server/
 ## 青龙对接
 
 **面板侧**：后台「青龙面板」页添加面板（url/账号/密码）→ 测试连通 → 「查看任务」直接读 crons、运行/停止。
-`POST /api/admin/ql/panels/<id>/provision` 可把 10 个内置小蚕任务按原站定时一键下发。
+`POST /api/admin/ql/panels/<id>/provision` 可把 10 个内置小蚕任务按默认定时一键下发。
 
 **runner 侧**（青龙上的 `xiaocan_console_runner.py` 之类脚本），用 `config.json` 的 `runner_key`：
 
@@ -215,12 +214,11 @@ SMTP 凭据放在 **settings 表**，后台「系统设置 → 邮件服务」�
 邮箱 → 邮箱验证码（点「获取验证码」+ 60 秒倒计时）→ 昵称 → 密码 → 确认密码 → 邀请码（选填）。
 前端 `web/src/features/auth/SignUpForm.tsx` 的输入全部**受控**：React 19 会在表单 action 跑完后自动 reset `<form>`，非受控输入会被打回 defaultValue（表现为「点一下获取验证码，邮箱密码全被清空」）。
 
-## 与原站的差异（有意为之）
+## 实现说明
 
 1. 扫码绑定默认关闭（需小蚕 RPC 方法名），改为粘贴绑定；接口与页面结构不变。
 2. 抢兑奖品列表需要真实小蚕接口，由 runner 通过 `type=prizes` 回填。
 3. 邮件走后台配置的 SMTP（`settings` 表）；没配 SMTP 时验证码写 `data/mail.log` 并回传前端，注册仍能在本地跑通。
-4. 原站把 `access_token` 返回给前端（账号卡片「更新数据」要用），本服务保持一致以便前端原样复用；
+4. `access_token` 返回给前端（账号卡片「更新数据」要用），本服务保持一致以便前端原样复用；
    若要收紧，可在 `xiaocan_bridge.serialize_account` 里去掉该字段并改造账号卡片。
-5. 不再托管老版 Vue SPA（`static/templates` 已移入 `../archive/复刻版-legacy-frontend`），
-   `/`、`/assets/*`、`/css/*`、`/js/*` 等静态路由整体移除，只保留 `/api/*` 与 `/healthz`。
+5. 不再托管老版 Vue SPA，`/`、`/assets/*`、`/css/*`、`/js/*` 等静态路由整体移除，只保留 `/api/*` 与 `/healthz`。

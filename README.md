@@ -1,6 +1,6 @@
-# 小蚕任务托管平台 · 项目总览
+# 任务托管平台 · 项目总览
 
-原站「我中了大牌券助手」的自建版：任务托管面板，用户端 + 管理后台（Next.js）+ 后端 API（Flask）+ 青龙面板/应用宝对接。
+任务托管面板：用户端 + 管理后台（Next.js）+ 后端 API（Flask）+ 青龙面板/应用宝对接。
 
 ## 架构
 
@@ -21,15 +21,15 @@ Flask 只对外提供 `/api/*`（外加 `/healthz` 探活），不再托管任�
 ## 目录
 
 ```
-小蚕网站/
+taskdeck/
 ├─ web/         Next.js 前端（端口 3001）——所有页面与交互在这里
 ├─ server/      Flask 后端（端口 8100）——数据库、鉴权、青龙/应用宝对接、脚本绑定矩阵
-├─ repos/       外部脚本仓库
+├─ repos/       外部脚本仓库（submodule）
 │  ├─ yyb-go-script-i/    应用宝微信小程序脚本（server/bindings.py 的路径映射指向这里）
 │  └─ yyb-go-enhanced/    应用宝服务端
-├─ docs/        接口规格、绑定矩阵、青龙信息、验证脚本、账号等杂项
+├─ docs/        接口规格与验证脚本（本地保留，不入库）
 ├─ screenshots/ 站点截图
-├─ archive/     已退役的老版前端（archive/复刻版-legacy-frontend）与缓存
+├─ archive/     已退役的老版前端与缓存
 ├─ .gitignore   忽略敏感配置与运行时数据（务必保留）
 └─ README.md    本文件
 ```
@@ -56,7 +56,7 @@ cd server && python3 tools/set_admin_password.py
 ## 敏感配置（重要）
 
 `server/config.json` 含 JWT secret、runner key、应用宝与青龙凭据；`server/data/panel.db`
-含用户口令哈希、小蚕 access_token、YYB 凭据。这些**只能留在本机**，根目录 `.gitignore` 已把它们全部排除。
+含用户口令哈希、第三方 access_token、YYB 凭据。这些**只能留在本机**，根目录 `.gitignore` 已把它们全部排除。
 
 配置三级合并，后者覆盖前者：
 
@@ -72,7 +72,7 @@ DEFAULT_CONFIG ← config.json ← config.local.json ← 环境变量
 
 - **改页面/样式/交互** → 只动 `web/`；**改数据/脚本规则/对接** → 只动 `server/`。
 - `server/bindings.py` 顶部的 `DEFAULT_REPO_MAP` 与模糊兜底路径指向
-  `小蚕网站/repos/yyb-go-script-i`，**移动 repos 目录必须同步改**。
+  `repos/yyb-go-script-i`，**移动 repos 目录必须同步改**。
 - `server/data/panel.db` 是生产库，删除前先备份。
 - 端口口径只有一个来源：`server/config.json` 的 `port`（默认 8100），`web/.env` 的
   `PANEL_API_URL` 与它保持一致。
