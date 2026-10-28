@@ -1,0 +1,40 @@
+{
+  "_说明_1": "配置模板。用法：复制为 config.json（基础配置）或 config.local.json（敏感凭据）后填写。",
+  "_说明_2": "合并优先级：DEFAULT_CONFIG ← config.json ← config.local.json ← 环境变量。",
+  "_说明_3": "敏感值建议只放 config.local.json 或用环境变量，两者都不会被提交（见根目录 .gitignore）。",
+  "_环境变量": [
+    "PANEL_HOST / PANEL_PORT / PANEL_SECRET_KEY / PANEL_ADMIN_EMAIL / PANEL_ADMIN_PASSWORD / PANEL_RUNNER_KEY / PANEL_REGISTER_REQUIRE_CODE",
+    "YYB_URL / YYB_USERNAME / YYB_PASSWORD",
+    "QL_URL / QL_CLIENT_ID / QL_CLIENT_SECRET"
+  ],
+
+  "host": "0.0.0.0",
+  "port": 8100,
+  "secret_key": "",
+  "token_ttl_seconds": 7200,
+  "admin_email": "admin@example.com",
+  "admin_password": "admin12345",
+  "runner_key": "",
+  "register_require_code": true,
+
+  "smtp": {
+    "_说明": "优先级低于数据库 settings 表（后台「系统设置 → 邮件服务」填的会覆盖这里）",
+    "host": "",
+    "port": 465,
+    "ssl": true,
+    "user": "",
+    "password": "",
+    "sender": ""
+  },
+  "yyb": {
+    "url": "http://127.0.0.1:5844",
+    "username": "",
+    "password": "",
+    "integration_token": ""
+  },
+  "qinglong": {
+    "url": "http://127.0.0.1:5700",
+    "client_id": "",
+    "client_secret": ""
+  }
+}

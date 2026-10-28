@@ -1,0 +1,41 @@
+# 构建上下文瘦身：web/node_modules 776M、.next 245M，绝不能进 context
+**/node_modules
+**/.next
+**/__pycache__
+**/*.pyc
+**/.venv
+**/venv
+**/.pytest_cache
+
+# 敏感配置与运行时数据（镜像里由 config.example.json 初始化 + 环境变量覆盖）
+server/config.json
+server/config.local.json
+server/data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.log
+
+# 本地资料，不参与构建
+docs
+PixPin_*.mp4
+screenshots
+截图
+archive
+
+# 版本控制与编辑器
+.git
+.gitmodules
+.github
+.idea
+.vscode
+.DS_Store
+*.swp
+
+# 构建产物
+build
+out
+coverage
+storybook-static
+*.tsbuildinfo

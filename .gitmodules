@@ -1,0 +1,6 @@
+[submodule "repos/yyb-go-script-i"]
+	path = repos/yyb-go-script-i
+	url = https://github.com/lcmovie/YYB-GO-Script-i.git
+[submodule "repos/yyb-go-enhanced"]
+	path = repos/yyb-go-enhanced
+	url = https://github.com/525815266/YYB-Go-Enhanced.git

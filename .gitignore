@@ -1,0 +1,57 @@
+# 小蚕任务托管平台 · 根级忽略规则
+#
+# 背景：server/config.json 里含 JWT secret、管理员口令、runner key、应用宝与青龙的
+# 账号密码；server/data/panel.db 里含用户口令哈希、小蚕 access_token、YYB 凭据。
+# 这些文件只应存在于本机，任何情况下都不要提交到版本库。
+
+# ---------------------------------------------------------------- 敏感配置
+server/config.json
+server/config.local.json
+!server/config.example.json
+
+# ---------------------------------------------------------------- 运行时数据
+server/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.log
+
+# ---------------------------------------------------------------- Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# ---------------------------------------------------------------- Node / Next
+node_modules/
+.next/
+out/
+build/
+coverage/
+storybook-static/
+*.tsbuildinfo
+
+# ---------------------------------------------------------------- 环境变量
+.env
+.env.local
+.env.*.local
+
+# ---------------------------------------------------------------- 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/settings.json
+*.swp
+
+# ---------------------------------------------------------------- 公开仓库排除项
+# docs/ 含抓包 JWT（docs/抓包/）、明文账号密码（docs/用户账号、docs/管理员账号、
+# docs/青龙面板信息、docs/eloc、docs/11）与内网地址，只保留在本机，不入公开仓库。
+docs/
+
+# 录屏素材，只保留在本机
+PixPin_*.mp4

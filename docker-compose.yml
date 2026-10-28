@@ -1,0 +1,41 @@
+services:
+  xiaocan-panel:
+    image: ghcr.io/OWNER/REPO:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: xiaocan-panel
+    restart: unless-stopped
+    ports:
+      # 只需要网页端口；8100 是容器内的后端，暴露出来便于直接调试 API
+      - "3001:3001"
+      - "8100:8100"
+    environment:
+      TZ: Asia/Shanghai
+      # 首次启动时初始化管理员；不设则用 config.example.json 的 admin@example.com / admin12345
+      # PANEL_ADMIN_EMAIL: admin@example.com
+      # PANEL_ADMIN_PASSWORD: change-me
+      # PANEL_SECRET_KEY: change-me
+      # 青龙 / 应用宝对接（也可在后台页面里配置）
+      # YYB_URL: http://127.0.0.1:5844
+      # YYB_USERNAME: ""
+      # YYB_PASSWORD: ""
+      # QL_URL: http://127.0.0.1:5700
+      # QL_CLIENT_ID: ""
+      # QL_CLIENT_SECRET: ""
+    volumes:
+      # SQLite 数据库、上传的站点图标、日志
+      - xiaocan-data:/app/server/data
+      # 需要放敏感配置时，把 config.local.json 放项目根再取消注释
+      # - ./server/config.local.json:/app/server/config.local.json:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS http://127.0.0.1:8100/healthz >/dev/null && curl -fsS http://127.0.0.1:3001/ >/dev/null
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+volumes:
+  xiaocan-data:
