@@ -140,7 +140,7 @@ def main():
             api_base = "http://127.0.0.1:" + json.loads(docker("inspect", name))[0]["NetworkSettings"]["Ports"]["8100/tcp"][0]["HostPort"]
             # 图标脚本要求初始为「未上传」状态，所以必须在下面用 API 上传之前跑。
             subprocess.run(["node", "scripts/verify-site-logo.mjs", base], cwd=ROOT / "web", env=browser_env, check=True, timeout=120)
-            subprocess.run(["node", "scripts/verify-password-change.mjs", base], cwd=ROOT / "web", env=browser_env, check=True, timeout=120)
+            subprocess.run(["node", "scripts/verify-password-change.mjs", base, api_base], cwd=ROOT / "web", env=browser_env, check=True, timeout=120)
             subprocess.run(["node", "scripts/verify-branding.mjs", base, api_base], cwd=ROOT / "web", env=browser_env, check=True, timeout=120)
 
         upload_script = """import io,json,sys,requests
