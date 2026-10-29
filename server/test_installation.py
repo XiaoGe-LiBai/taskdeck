@@ -1,4 +1,4 @@
-"""安装与发布回归：临时目录、离线邮件桩，不读取或改动本机数据。
+"""管理员配置与运行密钥回归：全部使用临时目录，不读取也不改动本机数据。
 
     python3 test_installation.py
 """
@@ -14,7 +14,6 @@ import sys
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from unittest import mock
 
 # 导入 core 之前隔离配置和自动生成的密钥，避免测试自身污染真实部署。
 _IMPORT_DIR = tempfile.TemporaryDirectory(prefix="taskdeck-tests-")
@@ -26,19 +25,16 @@ os.environ.update(PANEL_DATA_DIR=_IMPORT_DIR.name,
                   PANEL_CONFIG_LOCAL_PATH=str(Path(_IMPORT_DIR.name) / "local.json"))
 Path(os.environ["PANEL_CONFIG_PATH"]).write_text("{}", encoding="utf-8")
 
-import core
 import bootstrap
-import api_auth
-import mail
-from flask import Flask
+import core
 from runtime_config import persistent_keys
 
 PASSWORD = "test-only-Long-Password!42"
 
 
-class InstallationTests(unittest.TestCase):
+class AdminProvisioningTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="taskdeck-case-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="taskdeck-admin-")
         self.addCleanup(self.tmp.cleanup)
         self.addCleanup(core.close_db)
         core.close_db()
@@ -47,135 +43,108 @@ class InstallationTests(unittest.TestCase):
         core.CONFIG = dict(core.DEFAULT_CONFIG)
         core.CONFIG.update(persistent_keys(self.tmp.name, {}))
         core.init_db()
-        self.app = Flask(__name__)
-        self.app.config["TESTING"] = True
-        self.app.before_request(bootstrap.require_initialized)
-        self.app.register_blueprint(bootstrap.bp, url_prefix="/api/setup")
-        self.app.register_blueprint(api_auth.bp, url_prefix="/api/auth")
-        self.app.teardown_appcontext(core.close_db)
-        self.client = self.app.test_client()
-        self.prepare()
-        self.code = core.query_one("SELECT setup_code FROM installation")["setup_code"]
+
+    def configure(self, email="", password=""):
+        core.CONFIG.update(admin_email=email, admin_password=password)
 
     def prepare(self):
         with contextlib.redirect_stdout(io.StringIO()):
             bootstrap.prepare()
 
-    def payload(self, **overrides):
-        return {"setup_code": self.code, "email": "owner@example.test", "password": PASSWORD,
-                "confirm_password": PASSWORD, **overrides}
+    def admin(self):
+        return core.query_one("SELECT * FROM users WHERE role='admin'")
 
-    def install(self, **overrides):
-        return self.client.post("/api/setup", json=self.payload(**overrides))
+    def test_empty_db_without_credentials_refuses_to_start(self):
+        for email, password in (("", ""), ("owner@example.test", ""), ("", PASSWORD)):
+            with self.subTest(email=email, password=password):
+                self.configure(email, password)
+                with self.assertRaises(RuntimeError) as caught:
+                    self.prepare()
+                self.assertIn("PANEL_ADMIN_EMAIL", str(caught.exception))
+                self.assertIsNone(self.admin())
 
-    def test_fresh_database_no_user_or_public_code(self):
-        response = self.client.get("/api/setup")
-        self.assertEqual(response.json["data"], {"initialized": False})
-        self.assertEqual(response.headers["Cache-Control"], "no-store")
-        self.assertNotIn(self.code, response.get_data(as_text=True))
-        self.assertIsNone(core.query_one("SELECT 1 FROM users"))
-        self.assertGreaterEqual(len(self.code), 40)
+    def test_invalid_credentials_refused_before_creating_anything(self):
+        cases = {
+            "邮箱": ("not-an-email", PASSWORD),
+            "短口令": ("owner@example.test", "short"),
+            "超长口令": ("owner@example.test", "x" * 129),
+            "常见默认": ("owner@example.test", "Admin12345678"),
+        }
+        for name, (email, password) in cases.items():
+            with self.subTest(name):
+                self.configure(email, password)
+                with self.assertRaises(RuntimeError):
+                    self.prepare()
+                self.assertIsNone(self.admin())
 
-    def test_business_apis_closed_before_install(self):
-        for path in ("/api/auth/login", "/api/auth/register", "/api/admin/settings", "/api/runner/heartbeat"):
-            self.assertEqual(self.client.post(path, json={}).status_code, 503, path)
-
-    def test_invalid_inputs_and_no_partial_admin(self):
-        self.assertEqual(self.client.post("/api/setup", json=[]).status_code, 400)
-        self.assertEqual(self.client.post("/api/setup", data="x" * 5000).status_code, 413)
-        for fields in ({"email": []}, {"email": "wrong"}, {"password": "short"},
-                       {"password": "admin12345678"}, {"confirm_password": "different"}):
-            self.assertEqual(self.install(**fields).status_code, 400)
-        self.assertIsNone(core.query_one("SELECT 1 FROM users"))
-
-    def test_wrong_code_and_persisted_rate_limit(self):
-        self.assertEqual([self.install(setup_code="wrong").status_code for _ in range(5)],
-                         [403, 403, 403, 403, 429])
-        core.close_db()
+    def test_creates_admin_from_environment(self):
+        self.configure("Owner@Example.Test", PASSWORD)
         self.prepare()
-        response = self.install()
-        self.assertEqual(response.status_code, 429)
-        self.assertIn("Retry-After", response.headers)
-        core.execute("UPDATE installation SET locked_until=1")
-        self.assertEqual(self.install().status_code, 200)
+        admin = self.admin()
+        self.assertEqual(admin["email"], "owner@example.test")
+        self.assertEqual(admin["status"], "normal")
+        self.assertTrue(core.verify_password(PASSWORD, admin["password_hash"]))
+        self.assertTrue(admin["invite_code"])
 
-    def test_install_login_restart_no_overwrite(self):
-        self.assertEqual(self.install(email="OWNER@EXAMPLE.TEST").status_code, 200)
-        row = core.query_one("SELECT * FROM users")
-        self.assertTrue(core.verify_password(PASSWORD, row["password_hash"]))
-        self.assertEqual(row["email"], "owner@example.test")
-        self.assertEqual(row["role"], "admin")
-        self.assertIsNone(core.query_one("SELECT setup_code FROM installation")["setup_code"])
-        core.close_db()
-        core.CONFIG.update(admin_email="replacement@example.test", admin_password="bad")
+    def test_existing_admin_kept_when_no_password_given(self):
+        self.configure("owner@example.test", PASSWORD)
         self.prepare()
-        self.assertEqual(self.install().status_code, 409)
-        login = self.client.post("/api/auth/login", json={"email": row["email"], "password": PASSWORD})
-        self.assertEqual(login.json["code"], 200)
-        self.assertEqual(core.query_one("SELECT COUNT(*) n FROM users")["n"], 1)
-
-    def test_deleted_admin_does_not_reopen_setup(self):
-        self.install()
-        core.execute("DELETE FROM users")
+        before = dict(self.admin())
+        self.configure("other@example.test", "")
         self.prepare()
-        self.assertTrue(bootstrap.initialized())
-        self.assertEqual(self.install().status_code, 409)
+        self.assertEqual(dict(self.admin()), before)
 
-    def test_concurrent_install_exactly_one_winner(self):
-        def submit(index):
-            with self.app.test_client() as client:
-                return client.post("/api/setup", json=self.payload(email=f"owner{index}@example.test")).status_code
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            statuses = list(pool.map(submit, range(6)))
-        self.assertEqual(statuses.count(200), 1)
-        self.assertEqual(statuses.count(409), 5)
-        self.assertEqual(core.query_one("SELECT COUNT(*) n FROM users")["n"], 1)
+    def test_same_password_does_not_rotate_sessions(self):
+        self.configure("owner@example.test", PASSWORD)
+        self.prepare()
+        before = dict(self.admin())
+        self.prepare()
+        self.assertEqual(dict(self.admin()), before)
 
-    def test_explicit_credentials_and_partial_configuration(self):
-        core.CONFIG["admin_email"] = "env@example.test"
+    def test_new_password_rotates_and_revokes_sessions(self):
+        self.configure("owner@example.test", PASSWORD)
+        self.prepare()
+        before = self.admin()["token_version"]
+        changed = "another-Long-Password!77"
+        self.configure("owner@example.test", changed)
+        self.prepare()
+        admin = self.admin()
+        self.assertTrue(core.verify_password(changed, admin["password_hash"]))
+        self.assertFalse(core.verify_password(PASSWORD, admin["password_hash"]))
+        self.assertEqual(admin["token_version"], before + 1)
+        self.assertEqual(admin["email"], "owner@example.test")
+
+    def test_invalid_new_password_refused_instead_of_ignored(self):
+        self.configure("owner@example.test", PASSWORD)
+        self.prepare()
+        before = dict(self.admin())
+        self.configure("owner@example.test", "short")
         with self.assertRaises(RuntimeError):
             self.prepare()
-        core.CONFIG["admin_password"] = PASSWORD
+        self.assertEqual(dict(self.admin()), before)
+
+    def test_email_collision_with_normal_user_refused(self):
+        core.insert("users", {"email": "taken@example.test", "password_hash": core.hash_password(PASSWORD),
+                              "nickname": "普通用户", "role": "user", "status": "normal",
+                              "invite_code": core.gen_invite_code(), "created_time": core.iso()})
+        self.configure("taken@example.test", PASSWORD)
+        with self.assertRaises(RuntimeError):
+            self.prepare()
+        self.assertIsNone(self.admin())
+
+    def test_concurrent_startup_creates_exactly_one_admin(self):
+        self.configure("owner@example.test", PASSWORD)
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            list(pool.map(lambda _: self.prepare(), range(6)))
+        self.assertEqual(core.query_one("SELECT COUNT(*) n FROM users")["n"], 1)
+
+    def test_restart_twice_keeps_single_admin(self):
+        self.configure("owner@example.test", PASSWORD)
         self.prepare()
-        self.assertTrue(bootstrap.initialized())
-        self.assertEqual(core.query_one("SELECT email FROM users")["email"], "env@example.test")
-
-    def test_existing_admin_migrates_unchanged(self):
-        self.install()
-        before = dict(core.query_one("SELECT * FROM users"))
-        # 模拟旧版本没有 installation 表，但已有真实管理员。
-        core.execute("DROP TABLE installation")
-        core.CONFIG.update(admin_email="new@example.test", admin_password=PASSWORD)
+        core.close_db()
+        core.init_db()
         self.prepare()
-        self.assertEqual(dict(core.query_one("SELECT * FROM users")), before)
-        self.assertTrue(bootstrap.initialized())
-
-    def test_mail_all_three_routes_production_and_development(self):
-        self.install()
-        token = self.client.post("/api/auth/login", json={"email": "owner@example.test", "password": PASSWORD}).json["data"]["access_token"]
-        routes = [("/api/auth/register/code", "new@example.test"),
-                  ("/api/auth/reset-password", "owner@example.test"),
-                  ("/api/auth/email/change-code", "changed@example.test")]
-        for dev, sent in ((False, False), (True, False), (False, True)):
-            with mock.patch.dict(core.CONFIG, {"mail_dev_mode": dev}), \
-                 mock.patch.object(mail, "configured", return_value=sent), \
-                 mock.patch.object(mail, "send_mail", return_value={"sent": sent, "dry_run": not sent, "error": ""}):
-                for path, email in routes:
-                    core.execute("DELETE FROM email_codes")
-                    result = self.client.post(path, json={"email": email}, headers={"Authorization": f"Bearer {token}"}).json
-                    self.assertEqual(result["code"], 200 if (dev or sent) else 400)
-                    if dev:
-                        self.assertEqual(len(result["data"]["dev_code"]), 6)
-                    else:
-                        self.assertFalse(result["data"].get("dev_code"))
-                    if not dev and not sent:
-                        self.assertEqual(core.query_one("SELECT used FROM email_codes")["used"], 1)
-
-    def test_production_mail_does_not_log_body(self):
-        with mock.patch.object(mail, "LOG_PATH", str(Path(self.tmp.name) / "mail.log")), \
-             mock.patch.object(mail, "configured", return_value=False):
-            mail.send_mail("target@example.test", "code", "private-body-654321")
-            self.assertNotIn("private-body-654321", Path(mail.LOG_PATH).read_text())
+        self.assertEqual(core.query_one("SELECT COUNT(*) n FROM users")["n"], 1)
 
 
 class RuntimeKeysTests(unittest.TestCase):
@@ -194,7 +163,7 @@ class RuntimeKeysTests(unittest.TestCase):
             self.assertEqual(persistent_keys(directory, {}), legacy)
 
     def test_corrupt_keys_fail_closed(self):
-        for data in ("broken", "[]", '{}', '{"secret_key":"","runner_key":"x"}'):
+        for data in ("broken", "[]", "{}", '{"secret_key":"","runner_key":"x"}'):
             with self.subTest(data=data), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / "runtime-secrets.json"
                 path.write_text(data)

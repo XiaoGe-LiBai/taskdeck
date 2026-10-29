@@ -5,11 +5,9 @@ python3 docker/verify-image.py IMAGE [--browser]
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
 from pathlib import Path
-import re
 import secrets
 import subprocess
 import time
@@ -79,93 +77,109 @@ print(json.dumps({'status':response.status,'body':body}))
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image")
-    parser.add_argument("--browser", action="store_true", help="额外运行本机 Playwright 安装及品牌回归")
+    parser.add_argument("--browser", action="store_true", help="额外运行本机 Playwright 图标及品牌回归")
     args = parser.parse_args()
     name = "taskdeck-verify-" + secrets.token_hex(5)
     volume = name + "-data"
-    password = secrets.token_urlsafe(24)
     email = "verify@example.test"
+    password = secrets.token_urlsafe(24)
+    rotated = secrets.token_urlsafe(24)
     image = args.image
     docker("volume", "create", volume)
 
+    def admin_env(pw):
+        return ["-e", f"PANEL_ADMIN_EMAIL={email}", "-e", f"PANEL_ADMIN_PASSWORD={pw}"]
+
     def start(*extra):
-        api_ports = ["-p", "127.0.0.1::8100"] if args.browser else []
         docker("run", "-d", "--name", name, "-p", "127.0.0.1::3001", "-v", volume + ":/app/server/data",
-               *api_ports, *extra, image)
+               *(["-p", "127.0.0.1::8100"] if args.browser else []), *extra, image)
         return wait_ready(name)
+
+    def run_expecting_failure(*extra):
+        result = subprocess.run(["docker", "run", "--rm", "-v", volume + ":/app/server/data", *extra, image],
+                                capture_output=True, text=True, timeout=300)
+        output = result.stdout + result.stderr
+        assert result.returncode != 0, "缺少或非法管理员配置时容器不应成功启动"
+        assert "PANEL_ADMIN_EMAIL" in output or "PANEL_ADMIN_PASSWORD" in output, "启动失败时应提示管理员变量"
+        return output
 
     def snapshot():
         script = "import hashlib,pathlib; print(hashlib.sha256(pathlib.Path('/app/server/data/runtime-secrets.json').read_bytes()).hexdigest())"
         return docker("exec", name, "/app/venv/bin/python", "-c", script)
 
+    def login(pw):
+        return api(name, "/api/auth/login", "POST", dict(email=email, password=pw))["body"]
+
     try:
-        # 在启动前检查镜像文件系统，不能把本机配置、数据库或生成预览带入产物。
+        # 在镜像内而非宿主代码上跑测试，确认发布产物具备同样行为。
+        docker("run", "--rm", "--entrypoint", "/app/venv/bin/python", "-w", "/app/server", image, "test_installation.py",
+               timeout=300)
+        # 启动前检查镜像文件系统，不能把本机配置、数据库或生成预览带入产物。
         safety = "from pathlib import Path; root=Path('/app'); forbidden=['server/config.json','server/config.local.json','server/data/panel.db','server/data/runtime-secrets.json','web/.env','web/.env.local','web/public/_preview']; assert not any((root/p).exists() for p in forbidden), '镜像包含本地运行文件'"
         docker("run", "--rm", "--entrypoint", "/app/venv/bin/python", image, "-c", safety)
-        # 运行镜像内而非宿主代码，验证发布产物具备同样的行为。
-        tests = docker("run", "--rm", "--entrypoint", "/app/venv/bin/python", "-w", "/app/server", image,
-                       "test_installation.py")
-        assert "FAILED" not in tests
-        print("通过：镜像内离线安装/密钥/邮件单测", flush=True)
-        base = start()
-        assert api(name, "/api/setup")["body"]["data"] == {"initialized": False}
-        assert api(name, "/api/auth/register", "POST", {})["status"] == 503
-        assert web(base, "/sign-in")[1].get("Location", "").endswith("/setup")
-        page = web(base, "/setup")[2].decode()
-        logs = docker("logs", name)
-        code = re.search(r"一次性初始化码：([^\s]+)", logs).group(1)
-        assert code not in page
+        print("通过：镜像内离线单测与文件系统检查", flush=True)
+
+        run_expecting_failure()
+        run_expecting_failure("-e", f"PANEL_ADMIN_EMAIL={email}", "-e", "PANEL_ADMIN_PASSWORD=short")
+        print("通过：空库缺少或非法管理员配置时拒绝启动", flush=True)
+
+        base = start(*admin_env(password))
+        assert login(password)["code"] == 200, "环境变量配置的管理员应能登录"
+        assert api(name, "/api/setup")["body"]["code"] == 404, "不应再存在安装接口"
+        assert web(base, "/setup")[0] == 404, "不应再存在安装页"
+        assert "初始化码" not in docker("logs", name)
+        assert api(name, "/api/auth/register", "POST", {})["body"]["code"] != 200
         keys = snapshot()
-        payload = dict(setup_code=code, email=email, password=password, confirm_password=password)
-        assert api(name, "/api/setup", "POST", {**payload, "setup_code": "wrong"})["status"] == 403
-        # 启动第二次但尚未安装，安装码也不得变化。
-        docker("restart", "-t", "10", name)
-        base = wait_ready(name)
-        assert snapshot() == keys
-        assert re.search(r"一次性初始化码：([^\s]+)", docker("logs", name)).group(1) == code
-        browser_env = {**os.environ, "TEST_NO_SCREENSHOTS": "1", "TEST_SETUP_CODE": code, "TEST_ADMIN_EMAIL": email, "TEST_ADMIN_PASSWORD": password}
-        if args.browser:
-            subprocess.run(["node", "scripts/verify-installation.mjs", base], cwd=ROOT / "web", env=browser_env, check=True, timeout=120)
-        else:
-            assert api(name, "/api/setup", "POST", payload)["status"] == 200
-        assert api(name, "/api/setup", "POST", payload)["status"] == 409
-        login = api(name, "/api/auth/login", "POST", dict(email=email, password=password))["body"]
-        assert login["code"] == 200 and login["data"]["user"]["role"] == "admin"
-        token = login["data"]["access_token"]
-        assert web(base, "/setup")[1].get("Location", "").endswith("/sign-in")
-        assert api(name, "/api/auth/reset-password", "POST", {"email": email})["body"]["code"] != 200
-        print("通过：首次安装、错误码拦截、登录、重复安装关闭、正式邮件禁回显", flush=True)
+        token = login(password)["data"]["access_token"]
+        print("通过：按部署变量创建管理员、无安装入口、正式邮件禁回显", flush=True)
+
+        assert api(name, "/api/admin/settings", "PUT", {"site_name": "部署回归站点"}, token)["body"]["code"] == 200
 
         if args.browser:
+            browser_env = {**os.environ, "TEST_NO_SCREENSHOTS": "1", "TEST_ADMIN_EMAIL": email, "TEST_ADMIN_PASSWORD": password}
+            api_base = "http://127.0.0.1:" + json.loads(docker("inspect", name))[0]["NetworkSettings"]["Ports"]["8100/tcp"][0]["HostPort"]
+            # 图标脚本要求初始为「未上传」状态，所以必须在下面用 API 上传之前跑。
             subprocess.run(["node", "scripts/verify-site-logo.mjs", base], cwd=ROOT / "web", env=browser_env, check=True, timeout=120)
-            info = json.loads(docker("inspect", name))[0]
-            api_base = "http://127.0.0.1:" + info["NetworkSettings"]["Ports"]["8100/tcp"][0]["HostPort"]
             subprocess.run(["node", "scripts/verify-branding.mjs", base, api_base], cwd=ROOT / "web", env=browser_env, check=True, timeout=120)
 
-        assert api(name, "/api/admin/settings", "PUT", {"site_name": "安装回归站点", "site_url": "https://example.test"}, token)["body"]["code"] == 200
-        # 通过实际上传 API 保存横向 PNG，并检查站点图标代理。
-        upload_script = """import base64,io,json,sys,requests
+        upload_script = """import io,json,sys,requests
 from PIL import Image
 p=json.load(sys.stdin); image=Image.new('RGB',(480,180),'orange'); buf=io.BytesIO(); image.save(buf,format='PNG')
 r=requests.post('http://127.0.0.1:8100/api/admin/site-logo',headers={'Authorization':'Bearer '+p['token']},files={'file':('logo.png',buf.getvalue(),'image/png')},timeout=15)
 print(r.text)
 """
-        uploaded = json.loads(docker("exec", "-i", name, "/app/venv/bin/python", "-c", upload_script, input=json.dumps({"token": token})))
-        assert uploaded["code"] == 200, "图标上传失败"
-        assert uploaded["data"]["width"] == 256 and uploaded["data"]["height"] == 96
-        assert web(base, "/site-icon")[2].startswith(b"\x89PNG")
+        uploaded = json.loads(docker("exec", "-i", name, "/app/venv/bin/python", "-c", upload_script,
+                                     input=json.dumps({"token": token})))
+        assert uploaded["code"] == 200 and uploaded["data"]["width"] == 256, "图标上传失败"
         logo = web(base, "/site-icon")[2]
+
         docker("stop", "-t", "15", name)
         assert json.loads(docker("inspect", name))[0]["State"]["ExitCode"] == 0
         docker("rm", name)
-        # 换一组环境变量重建，已有管理员必须不受影响。
-        base = start("-e", "PANEL_ADMIN_EMAIL=changed@example.test", "-e", "PANEL_ADMIN_PASSWORD=invalid")
-        assert snapshot() == keys
+
+        base = start(*admin_env(password))
+        assert login(password)["code"] == 200, "重建后管理员应仍然存在"
+        assert api(name, "/api/auth/profile", token=token)["body"]["code"] == 200, "口令未变时旧会话应继续有效"
+        assert snapshot() == keys, "重建不得更换运行密钥"
+        assert api(name, "/api/site-info")["body"]["data"]["site_name"] == "部署回归站点"
+        assert web(base, "/site-icon")[2] == logo, "重建后图标应保持一致"
+        print("通过：重建保留管理员、会话、运行密钥、站名和图标", flush=True)
+
+        docker("stop", "-t", "15", name)
+        docker("rm", name)
+        base = start(*admin_env(rotated))
+        assert login(password)["code"] != 200, "改口令后旧口令必须失效"
+        assert api(name, "/api/auth/profile", token=token)["body"]["code"] == 401, "改口令后旧会话必须失效"
+        token = login(rotated)["data"]["access_token"]
         assert api(name, "/api/auth/profile", token=token)["body"]["code"] == 200
-        assert api(name, "/api/site-info")["body"]["data"]["site_name"] == "安装回归站点"
+        assert rotated not in docker("logs", name), "日志不得出现管理员口令"
+        docker("stop", "-t", "15", name)
+        docker("rm", name)
+
+        base = start()
+        assert login(rotated)["code"] == 200, "去掉管理员变量后应沿用库里已有口令"
         assert web(base, "/site-icon")[2] == logo
-        assert api(name, "/api/setup")["body"]["data"]["initialized"] is True
-        print("通过：容器重建保留管理员、JWT、运行密钥、站名和图标", flush=True)
+        print("通过：改口令即同步并吊销旧会话、移除变量后仍可登录", flush=True)
 
         # 前端退出，入口应关闭后端并以非零状态结束；不接受半死容器。
         killer = "import os,signal,pathlib; [os.kill(int(p.name),signal.SIGTERM) for p in pathlib.Path('/proc').iterdir() if p.name.isdigit() and (p/'comm').exists() and (p/'comm').read_text().strip().startswith('next-server')]"
@@ -178,18 +192,10 @@ print(r.text)
         docker("run", "--rm", "--user", "0:0", "--entrypoint", "chown", "-v", volume + ":/app/server/data",
                image, "-R", "12345:12345", "/app/server/data")
         base = start("--user", "12345:12345")
+        assert login(rotated)["code"] == 200
         assert snapshot() == keys
-        assert api(name, "/api/auth/profile", token=token)["body"]["code"] == 200
         assert web(base, "/site-icon")[2] == logo
         print("通过：自定义非 root UID/GID 读取持久化数据", flush=True)
-        docker("stop", "-t", "15", name)
-        docker("rm", name)
-        base = start("--user", "12345:12345", "-e", "PANEL_DATA_DIR=/tmp/isolated-first-install",
-                     "-e", "PANEL_ADMIN_EMAIL=" + email, "-e", "PANEL_ADMIN_PASSWORD=" + password)
-        assert api(name, "/api/setup")["body"]["data"]["initialized"] is True
-        assert api(name, "/api/auth/login", "POST", dict(email=email, password=password))["body"]["code"] == 200
-        assert "一次性初始化码" not in docker("logs", name)
-        print("通过：自定义 UID 空目录与环境变量无人值守初始化", flush=True)
         print("镜像验收全部通过：" + image, flush=True)
     finally:
         docker("rm", "-f", name, check=False)

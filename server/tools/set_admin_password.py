@@ -22,7 +22,8 @@
 安全约定：
   · 口令至少 8 位，永不回显、不落日志；
   · 改的若是 config.json 里的管理员账号，会把 config.json 的 admin_password 清空，
-    这样 core.admin_password_is_default() 不再报警（库已存在，该字段只在首次建库时用）。
+    这样 core.admin_password_is_default() 不再报警（该字段只在首次建库时用）；
+  · 环境变量 PANEL_ADMIN_PASSWORD 优先级更高，仍设置时下次重启会覆盖本脚本的结果。
 """
 from __future__ import annotations
 
@@ -46,7 +47,7 @@ def _load_accounts() -> list:
 def list_accounts() -> int:
     rows = _load_accounts()
     if not rows:
-        print("库里还没有账号，请启动后端后在网页 /setup 完成一次性初始化。")
+        print("库里还没有账号，请先用 -e PANEL_ADMIN_EMAIL / -e PANEL_ADMIN_PASSWORD 启动一次后端。")
         return 0
     print(f"{'ID':>5}  {'渠道':<8} {'角色':<7} {'邮箱':<32} 昵称")
     print("-" * 78)
@@ -76,8 +77,11 @@ def prompt_password() -> str:
 def sync_config_admin_password(email: str) -> None:
     """改的是 config.json 里的管理员账号时，清掉那个出厂默认口令字段。
 
-    config.json 的 admin_password 只在「首次建库」时被 seed 使用，库已存在时它不参与登录；
+    config.json 的 admin_password 只在「首次建库」时被 bootstrap 使用，库已存在时它不参与登录；
     清空它只是为了不再触发「口令仍是默认值」的启动提醒。
+
+    注意：如果口令来自环境变量 PANEL_ADMIN_PASSWORD，脚本改不动它 —— 下次重启会按变量同步回去。
+    这种情况请改用部署变量，或先把变量从启动命令里去掉。
     """
     configured = str(core.CONFIG.get("admin_email") or "").strip().lower()
     if not configured or configured != email.strip().lower():

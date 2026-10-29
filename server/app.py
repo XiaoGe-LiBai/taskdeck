@@ -25,7 +25,6 @@ except Exception:
 from flask import Flask
 
 import core
-import bootstrap
 from api_admin import bp as admin_bp
 from api_auth import bp as auth_bp
 from api_projects import bp as projects_bp
@@ -57,8 +56,6 @@ def create_app() -> Flask:
     import xiaocan_bridge
     xiaocan_bridge.start_level_refresh_daemon()
 
-    app.before_request(bootstrap.require_initialized)
-    app.register_blueprint(bootstrap.bp, url_prefix="/api/setup")
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(projects_bp, url_prefix="/api")
     app.register_blueprint(user_bp, url_prefix="/api")

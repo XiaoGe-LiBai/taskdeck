@@ -7,7 +7,7 @@
 **/venv
 **/.pytest_cache
 
-# 敏感配置与运行时数据（首次启动走安装向导，密钥写入数据卷）
+# 敏感配置与运行时数据（管理员由部署变量创建，密钥写入数据卷）
 server/config.json
 server/config.local.json
 server/data

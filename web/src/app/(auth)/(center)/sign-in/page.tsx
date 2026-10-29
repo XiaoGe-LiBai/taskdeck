@@ -9,9 +9,9 @@ function safeRedirect(target?: string) {
 }
 
 export default async function SignInPage(props: {
-  searchParams: Promise<{ redirect_url?: string; setup?: string }>;
+  searchParams: Promise<{ redirect_url?: string }>;
 }) {
-  const { redirect_url: redirectUrl, setup } = await props.searchParams;
+  const { redirect_url: redirectUrl } = await props.searchParams;
 
   // 已登录（token 真有效）就别停在登录页。
   // 关键：这里用的是**真实校验**（panelMe 会问后端），而不是"cookie 在不在" ——
@@ -23,5 +23,5 @@ export default async function SignInPage(props: {
 
   const { site_name: siteName, logo_url: logoUrl } = await getSiteInfo();
 
-  return <SignInForm redirectUrl={redirectUrl} siteName={siteName} logoUrl={logoUrl} setupComplete={setup === '1'} />;
+  return <SignInForm redirectUrl={redirectUrl} siteName={siteName} logoUrl={logoUrl} />;
 }

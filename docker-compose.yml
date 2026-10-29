@@ -11,10 +11,10 @@ services:
       # - "127.0.0.1:8100:8100"
     environment:
       TZ: Asia/Shanghai
-      # 不设置账号时走 /setup，初始化码从容器启动日志读取。
-      # 无人值守部署可同时设置以下两个变量，仅空库首次生效：
-      # PANEL_ADMIN_EMAIL: ${PANEL_ADMIN_EMAIL:?请设置管理员邮箱}
-      # PANEL_ADMIN_PASSWORD: ${PANEL_ADMIN_PASSWORD:?请设置12至128位密码}
+      # 管理员在部署时直接配置；空库缺变量或口令不合规会拒绝启动（见 README）。
+      # 填在仓库根目录 .env（已忽略）后 docker compose up -d 自动读取。
+      PANEL_ADMIN_EMAIL: ${PANEL_ADMIN_EMAIL:-}
+      PANEL_ADMIN_PASSWORD: ${PANEL_ADMIN_PASSWORD:-}
       THREADS: "4"
       # WORKERS 必须为 1，扫码会话暂不支持跨进程共享。
     volumes:

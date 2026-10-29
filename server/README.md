@@ -19,18 +19,21 @@ python3 smoke_test.py                # 87 项全链路冒烟测试（默认打 :
 
 端口口径只有一个来源：`config.json` 的 `port`（默认 8100），`run.sh` 与前端 `PANEL_API_URL` 都对齐它。
 
-### 初始口令（重要）
+### 管理员口令（重要）
 
-新部署没有默认管理员；启动日志提供一次性安装码，在前端 `/setup` 创建管理员。也可同时配置管理员邮箱与密码进行无人值守初始化。详见[部署说明](../README.md)。已有管理员不被覆盖，改口令不用删库：
+没有默认管理员。空库首次启动必须提供 `PANEL_ADMIN_EMAIL` + `PANEL_ADMIN_PASSWORD`（12～128 位，禁用常见默认值），否则拒绝启动；管理员已存在时若变量里的口令不同，会同步并吊销旧会话。详见[部署说明](../README.md)。
+
+改口令的两种方式：
 
 ```bash
-python3 tools/set_admin_password.py                 # 改 config.json 里 admin_email 那个账号（交互输入口令）
+# 1）部署变量为准：改 PANEL_ADMIN_PASSWORD 后重启容器
+# 2）不想再用变量：用 CLI 改库（交互输入，改完 token_version +1）
+python3 tools/set_admin_password.py                 # 默认改第一个管理员
 python3 tools/set_admin_password.py you@mail.com    # 指定账号
 python3 tools/set_admin_password.py --list          # 只看有哪些账号
 ```
 
-改完会顺带把该账号的 `token_version` +1（现有登录凭证立即失效）。
-后端每次启动若发现口令仍是出厂默认值，会在控制台打印告警。
+用 CLI 改完记得把 `PANEL_ADMIN_PASSWORD` 从部署命令里去掉，否则下次重启会被变量覆盖回原口令。
 
 ## 配置
 

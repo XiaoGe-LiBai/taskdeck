@@ -2,28 +2,35 @@
 
 Next.js 用户端与管理后台 + Flask/SQLite API，对接青龙面板与应用宝。
 
-> **升级前备份整个数据目录。** 新部署没有默认管理员或默认密码；已有管理员不会被环境变量覆盖。镜像目前提供 `linux/amd64`，ARM 设备不应直接照搬本说明。
+> **升级前备份整个数据目录。** 管理员在部署命令里配置，没有默认账号或默认密码；已存在的管理员不会被静默替换。镜像目前提供 `linux/amd64`，ARM 设备不应直接照搬本说明。
 
 ## Docker 快速部署
 
 ```bash
-docker pull ghcr.io/xiaoge-libai/taskdeck:latest
 docker run -d --name taskdeck --restart unless-stopped \
   -p 3001:3001 \
+  -e PANEL_ADMIN_EMAIL=you@example.com \
+  -e PANEL_ADMIN_PASSWORD='换成长口令，12～128 位' \
   -v xiaocan-data:/app/server/data \
   ghcr.io/xiaoge-libai/taskdeck:latest
-
-docker logs taskdeck
 ```
 
-1. 打开 `http://服务器地址:3001`，空库自动进入 `/setup`。
-2. 从容器日志找到「一次性初始化码」，在页面填写管理员邮箱和 **12～128 位非默认密码**。
-3. 创建成功后进入登录页，用刚设置的账号登录。安装码作废，安装入口永久关闭。
-4. 在「系统设置」配置站名、站点图标、站点地址和 SMTP；设置 `site_url` 后邮件才能使用绝对图标地址。
+1. 打开 `http://服务器地址:3001`，用上面的邮箱和口令登录。
+2. 在「系统设置」配置站名、站点图标、站点地址和 SMTP；设置 `site_url` 后邮件才能使用绝对图标地址。
 
-初始化码只出现在部署日志中，不在公开接口或页面中显示。不要公开日志；对外使用 HTTPS。错误码连续尝试会短暂锁定安装，重启不能绕过锁定。后端不可用时不会当作空库重新安装。
+管理员规则（`server/bootstrap.py`）：
 
-也可使用仓库自带编排：
+| 情形 | 行为 |
+|---|---|
+| 空库 + 两个变量齐全且合规 | 创建管理员 |
+| 空库 + 缺变量 / 口令不足 12 位 / 常见默认口令 | **拒绝启动**，日志提示原因 |
+| 已有管理员 + 口令变量相同 | 什么都不做，会话保持有效 |
+| 已有管理员 + 口令变量不同 | 同步为新口令并吊销旧会话（改密码 = 改命令后重启） |
+| 已有管理员 + 未给口令变量 | 沿用库里现有口令 |
+
+`PANEL_ADMIN_EMAIL` 只在创建时使用；管理员已存在时改邮箱请在后台操作，容器日志会提示忽略。口令变量是唯一事实，因此在后台改的密码会在下次重启时被部署变量覆盖——要么长期用变量管理口令，要么设置一次后把变量从命令里删掉。
+
+也可使用仓库自带编排（先 `cp .env.example .env` 并填好两个变量，`.env` 已被忽略）：
 
 ```bash
 git clone --recurse-submodules git@github.com:XiaoGe-LiBai/taskdeck.git
@@ -64,13 +71,13 @@ docker run -d --name taskdeck --restart unless-stopped \
 
 已有卷更换 UID/GID 前，先停容器并正确迁移目录所有权；不要 `chmod 777`。Compose 改用宿主目录时，也需将 `user` 和目录所有者匹配。
 
-## 配置与无人值守初始化
+## 配置
 
 配置优先级：内置值 → `config.json` → `config.local.json` → 环境变量；未显式配置的密钥使用数据卷中的持久化值。镜像不携带本机配置、数据库、上传文件或 `.env`。
 
 | 变量 | 用途 |
 |---|---|
-| `PANEL_ADMIN_EMAIL`、`PANEL_ADMIN_PASSWORD` | **必须同时设置**，只对未安装且没有管理员的库生效，密码规则与网页一致 |
+| `PANEL_ADMIN_EMAIL`、`PANEL_ADMIN_PASSWORD` | 管理员账号口令，规则见上表；空库必须同时提供 |
 | `PANEL_SECRET_KEY`、`PANEL_RUNNER_KEY` | 可选显式密钥；不设则自动保存到数据卷 |
 | `PANEL_DATA_DIR` | 数据目录，默认 `/app/server/data`；改动时同步调整挂载位置 |
 | `PANEL_CONFIG_PATH`、`PANEL_CONFIG_LOCAL_PATH` | 可选配置路径，通常无需设置 |
@@ -80,14 +87,16 @@ docker run -d --name taskdeck --restart unless-stopped \
 | `YYB_URL`、`YYB_USERNAME`、`YYB_PASSWORD` | 应用宝服务对接 |
 | `QL_URL`、`QL_CLIENT_ID`、`QL_CLIENT_SECRET` | 青龙 OpenAPI 对接 |
 
-无人值守部署可通过受保护的环境文件传入两个管理员变量，不要把实际口令写进 Git、镜像层或共享命令历史。只提供其中一个会拒绝启动。管理员已存在时，修改这些变量**不会改密码**；请登录后台改密，或使用：
+口令会短暂存在于容器配置和进程环境中，不要把实际值写进 Git、镜像层或共享命令历史；用 `.env`、compose 的 `env_file` 或宿主密钥管理传入并限制文件权限。`ps`、`docker inspect` 能看到环境变量，多租户主机应改用文件挂载配合 `PANEL_CONFIG_LOCAL_PATH`。
+
+不想继续用变量管理口令时，可改用 CLI（邮箱替换为实际管理员邮箱）：
 
 ```bash
 docker exec -it -w /app/server taskdeck /app/venv/bin/python tools/set_admin_password.py --list
 docker exec -it -w /app/server taskdeck /app/venv/bin/python tools/set_admin_password.py admin@example.org
 ```
 
-第二条命令中的邮箱应替换为已有管理员邮箱；脚本交互读取新密码。即使管理员被误删，匿名安装也不会重开，应通过受控恢复流程处理。
+改完后把 `PANEL_ADMIN_PASSWORD` 从部署命令里去掉，否则下次重启会再次同步成变量里的值。
 
 ## 邮件与品牌设置
 
@@ -98,11 +107,11 @@ SMTP 在「系统设置 → 邮件服务」配置；未配置或投递失败时�
 ## 本地开发与验收
 
 ```bash
-# 后端：首次空库同样使用安装码
+# 后端：空库启动前先给管理员变量
 cd server
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-.venv/bin/python app.py
+PANEL_ADMIN_EMAIL=you@example.com PANEL_ADMIN_PASSWORD='12位以上口令' .venv/bin/python app.py
 
 # 另一个终端启动前端
 cd web
@@ -118,17 +127,17 @@ python3 server/test_installation.py
 docker build -t taskdeck:verify .
 python3 docker/verify-image.py taskdeck:verify
 
-# 本机已有 web/node_modules 和 Chrome 时，加测手机安装流程与图标界面
+# 本机已有 web/node_modules 和 Chrome 时，加测图标与站名界面
 python3 docker/verify-image.py taskdeck:verify --browser
 ```
 
-发布工作流先构建候选镜像，在镜像内执行离线测试并验证安装、重建、图标、非 root 权限及进程故障，成功后推送同一镜像。提供 `latest`、`main` 和 `sha-完整提交号` 标签；生产可固定 digest，OCI `org.opencontainers.image.revision` 对应源码提交。
+发布工作流先构建候选镜像，在镜像内执行离线测试并验证管理员配置、重建、口令轮换、图标、非 root 权限及进程故障，成功后推送同一镜像。提供 `latest`、`main` 和 `sha-完整提交号` 标签；生产可固定 digest，OCI `org.opencontainers.image.revision` 对应源码提交。
 
 ## 代码位置
 
 - `web/`：Next.js 页面、Server Actions 和品牌组件。
 - `server/`：Flask API、SQLite、业务逻辑和邮件模板。
-- `server/bootstrap.py`：一次性管理员初始化。
+- `server/bootstrap.py`：按部署变量创建/同步管理员。
 - `server/runtime_config.py`：数据卷运行密钥。
 - `docker/`：启动监督与镜像验收脚本。
 - `repos/`：公开上游子模块；克隆和构建时需要实际内容。
