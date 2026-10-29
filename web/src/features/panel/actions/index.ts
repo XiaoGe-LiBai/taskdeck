@@ -46,6 +46,7 @@ export {
 
 export {
   changeEmailAction,
+  changePasswordAction,
   doCheckInAction,
   fetchCheckInCalendarAction,
   fetchMyNotificationsAction,

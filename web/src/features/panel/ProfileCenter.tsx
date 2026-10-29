@@ -6,6 +6,7 @@ import { useActionState, useState } from 'react';
 import { AnimatedList } from '@/components/reactbits';
 import { redeemPointsCardAction } from './actions';
 import { ChangeEmailCard } from './ChangeEmailCard';
+import { ChangePasswordCard } from './ChangePasswordCard';
 import { MembershipPurchase } from './MembershipPurchase';
 import { Card, StatCard, Tag } from './Ui';
 
@@ -144,6 +145,9 @@ export const ProfileCenter = (props: {
 
       {/* 换绑邮箱 */}
       {user && <ChangeEmailCard currentEmail={user.email} />}
+
+      {/* 修改登录密码 */}
+      <ChangePasswordCard />
 
       {/* 积分流水记录 */}
       <Card

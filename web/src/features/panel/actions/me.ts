@@ -211,6 +211,39 @@ export async function makeupCheckInAction(
   };
 }
 
+/**
+ * 修改自己的登录口令（个人资料页）。
+ *
+ * 后端 PUT /auth/password 要求旧口令，且新口令至少 8 位；这里先做同规则的本地校验，
+ * 避免把明显不合法的请求发出去。改完当前会话继续有效（后端不吊销自己）。
+ */
+export async function changePasswordAction(_state: _prev, formData: FormData): Promise<string> {
+  const oldPassword = String(formData.get('old_password') ?? '');
+  const newPassword = String(formData.get('new_password') ?? '');
+  const confirmPassword = String(formData.get('confirm_password') ?? '');
+  if (!oldPassword) {
+    return 'error:请输入当前密码';
+  }
+  if (newPassword.length < 8) {
+    return 'error:新密码至少 8 位';
+  }
+  if (newPassword !== confirmPassword) {
+    return 'error:两次输入的新密码不一致';
+  }
+  if (newPassword === oldPassword) {
+    return 'error:新密码不能与当前密码相同';
+  }
+  const result = await panelSend('PUT', '/auth/password', {
+    old_password: oldPassword,
+    new_password: newPassword,
+  });
+  if (!result.ok) {
+    return `error:${result.msg || '修改失败'}`;
+  }
+  revalidatePath('/dashboard/profile');
+  return 'ok:密码已修改，下次登录请使用新密码';
+}
+
 export async function sendEmailChangeCodeAction(email: string): Promise<string> {
   const normalized = (email ?? '').trim().toLowerCase();
   if (!normalized || !normalized.includes('@')) {
