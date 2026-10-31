@@ -15,6 +15,7 @@ import core
 import mail
 import notify
 import vip
+import grab_engine
 import xiaocan_actions
 import xiaocan_bridge as xc
 import xiaocan_tasks
@@ -1628,4 +1629,62 @@ def xiaocan_task_event(aid: int):
         return core.fail(f"完成营销任务失败：{exc}")
     return core.ok({"account_id": aid, "task_type": task_type, "data": data})
 
+# ---------------------------------------------------------------- 抢单 / 预约（到点执行）
 
+@bp.post("/xiaocan/accounts/<int:aid>/grab")
+@core.require_admin
+def xiaocan_grab(aid: int):
+    """立即抢或预约到点抢。
+
+    body: {promotion_id, at?, advance?, lat, lon, city_code?, store_platform?}
+    at 可为秒级时间戳或 ISO 时间；省略即立即执行。
+    """
+    account = _xiaocan_account_or_none(aid)
+    if not account:
+        return core.fail("账号不存在", 404)
+    body = request.get_json(silent=True) or {}
+    promotion_id = str(body.get("promotion_id") or "").strip()
+    if not promotion_id:
+        return core.fail("请填写 promotion_id")
+
+    at_ts = None
+    at_raw = body.get("at")
+    if at_raw not in (None, ""):
+        try:
+            at_ts = float(at_raw)
+        except (TypeError, ValueError):
+            parsed = core.parse_iso(str(at_raw))
+            if not parsed:
+                return core.fail("时间格式不正确，请用时间戳或 ISO 时间")
+            at_ts = parsed.timestamp()
+
+    try:
+        job = grab_engine.schedule(
+            aid,
+            promotion_id,
+            at_ts=at_ts,
+            advance=bool(body.get("advance")),
+            lat=body.get("lat"),
+            lon=body.get("lon"),
+            city_code=body.get("city_code"),
+            store_platform=int(body.get("store_platform") or 1),
+        )
+    except ValueError as exc:
+        return core.fail(str(exc))
+    core.log_admin_action("xiaocan_grab", None, {"account_id": aid, "promotion_id": promotion_id})
+    return core.ok(job)
+
+
+@bp.get("/xiaocan/grab-jobs")
+@core.require_admin
+def xiaocan_grab_jobs():
+    """最近的抢单任务（进程内，重启清空）。"""
+    return core.ok({"jobs": grab_engine.list_jobs()})
+
+
+@bp.delete("/xiaocan/grab-jobs/<job_id>")
+@core.require_admin
+def xiaocan_grab_cancel(job_id: str):
+    if not grab_engine.cancel(job_id):
+        return core.fail("任务不存在或已结束", 404)
+    return core.ok({"cancelled": job_id})

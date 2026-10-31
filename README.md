@@ -169,6 +169,23 @@ GET /api/xiaocan/accounts/<id>/stores/explore?lat=&lon=&city_code=
 
 面板入口：侧栏「业务 → 附近霸王餐」(`/dashboard/stores`)，可选账号、填经纬度/城市码，在「附近外卖 / 搜索店铺 / 到店团购」间切换并翻页。定位只随请求传递，不落库。
 
+### 抢单与预约
+
+```
+POST   /api/admin/xiaocan/accounts/<id>/grab      {promotion_id, at?, advance?, lat, lon, city_code?, store_platform?}
+GET    /api/admin/xiaocan/grab-jobs               最近任务（进程内）
+DELETE /api/admin/xiaocan/grab-jobs/<job_id>      取消
+```
+
+- 按活动 ID 位数路由：7 位以下走 `SilkwormFusion.FusionGrabPromotionQuota`（source=2），其余走 `SilkwormService.GrabPromotionQuota`；主路由失败自动换另一个。
+- 成功判定：响应里 `promotion_order_id > 0`；否则记为 `failed` 并保留上游原始原因。
+- `at` 传时间戳或 ISO 时间即预约；不传立即执行。到点前 0.5 秒内把轮询间隔压到 5ms。
+- 15 位以上的美团赏金活动（`poi_event_id`）需要额外参数，当前**显式拒绝**并说明原因，不会发出注定失败的请求。
+
+### WAF 熔断
+
+网关命中腾讯云 WAF 时返回 403。服务端识别后进入 **15 秒冷却**（`server/xiaocan_bridge.py`）：冷却期内所有网关调用直接失败、不发网络请求，避免越重试封得越久；冷却结束自动恢复。
+
 ## 本地开发与验收
 
 ```bash

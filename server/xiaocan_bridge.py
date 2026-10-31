@@ -42,6 +42,48 @@ XC_UA = "XC;iOS;3.16.9"
 
 BIND_LINE_RE = re.compile(r"^\s*([^#@]*)#([^#@]+)#([^#@]+)#([^#@\s]+)\s*$")
 
+# ---------------------------------------------------------------- WAF 熔断
+#
+# 腾讯云 WAF 在频次超限时返回 403；此时继续重发会把封禁时间越叠越长。
+# 所以命中 WAF 后进入冷却期：冷却期内所有网关调用直接失败，不发网络请求。
+WAF_BLOCK_SECONDS = 15
+_waf_blocked_until = 0.0
+_waf_lock = threading.Lock()
+
+
+def is_waf_blocked() -> bool:
+    return time.time() < _waf_blocked_until
+
+
+def waf_cooldown_seconds() -> int:
+    return max(0, int(_waf_blocked_until - time.time()))
+
+
+def mark_waf_blocked(seconds: int = WAF_BLOCK_SECONDS) -> int:
+    """命中 WAF 后调用；返回本次冷却的总秒数。"""
+    global _waf_blocked_until
+    with _waf_lock:
+        _waf_blocked_until = max(_waf_blocked_until, time.time() + seconds)
+        return seconds
+
+
+def clear_waf_block() -> None:
+    global _waf_blocked_until
+    with _waf_lock:
+        _waf_blocked_until = 0.0
+
+
+def _looks_like_waf(resp) -> bool:
+    """WAF 的特征：响应体带 WAF 字样，或网关 server 头是腾讯 stgw。"""
+    try:
+        server = (resp.headers.get("server") or "").lower()
+        if "stgw" in server:
+            return True
+        body = (resp.text or "")[:2000]
+        return "WAF" in body or "waf" in body
+    except Exception:
+        return False
+
 
 # ------------------------------------------------------------ 功能开关
 
@@ -698,6 +740,13 @@ def xiaocan_rpc(
     city_code 非空时附带 x-City 头：活动/店铺类接口按城市返回数据，
     登录与用户信息接口不需要它（传 None 就保持原样，不改变现有调用）。
     """
+    if is_waf_blocked():
+        remain = waf_cooldown_seconds()
+        raise RuntimeError(
+            f"当前网络处于官方 WAF 频次拦截冷却中（剩余约 {remain} 秒），已自动暂停请求以避免延长封禁；"
+            "可换网络（手机热点/重启光猫）或等待冷却结束"
+        )
+
     body = dict(payload or {})
     body.setdefault("app_id", app_id)
     data = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
@@ -736,6 +785,12 @@ def xiaocan_rpc(
         if resp.status_code == 401:
             raise RuntimeError("小蚕凭据已失效（HTTP 401），请重新扫码绑定")
         if resp.status_code == 403:
+            if _looks_like_waf(resp):
+                seconds = mark_waf_blocked()
+                raise RuntimeError(
+                    f"被官方 WAF 拦截（HTTP 403），已进入 {seconds} 秒熔断冷却；"
+                    "常见原因是代理/VPN/TUN 或当前 IP 频次超限"
+                )
             raise RuntimeError("小蚕网关拦截（HTTP 403），请稍后重试或降低频率")
         if resp.status_code >= 400:
             last_error = f"{host} HTTP {resp.status_code}"

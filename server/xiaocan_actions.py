@@ -277,3 +277,91 @@ def explore_stores(
     }
     res = _call(account, "SilkwormExplore", "ExploreMobile.ListGroupPromotion", body, city_code=city)
     return _with_items(res, "list", "promotion_list")
+
+# ---------------------------------------------------------------- 抢单 / 预约
+
+SHANGJIN_ID_FLOOR = 10_000_000_000   # 15 位以上 = 美团赏金 poi_event_id
+FUSION_ID_CEILING = 10_000_000       # 7 位以下 = 聚合活动（source=2）
+
+
+def order_id_of(res: dict) -> int:
+    """从抢单响应里取官方订单号；取不到就返回 0（= 没抢到）。"""
+    raw = res.get("promotion_order_id") or (res.get("order") or {}).get("promotion_order_id") or 0
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _clean_promo_id(promotion_id) -> tuple[str, int]:
+    """去掉尾巴上的 `_p12` 之类的分组后缀，返回 (原串, 整数)。"""
+    raw = str(promotion_id or "").strip()
+    cleaned = raw.split("_", 1)[0]
+    try:
+        return cleaned, int(cleaned)
+    except (TypeError, ValueError):
+        raise ValueError(f"promotion_id 不合法：{promotion_id!r}") from None
+
+
+def grab_promotion_quota(
+    account: dict,
+    promotion_id,
+    *,
+    store_platform: int = 1,
+    advance: bool = False,
+    lat: float | str | None = None,
+    lon: float | str | None = None,
+    city_code: int | str | None = None,
+    redpack_id=None,
+    vip_promotion_card_id=None,
+    vip_extra_silk_card_id=None,
+) -> dict:
+    """抢霸王餐名额。按活动 ID 位数路由到对应微服务，主路由失败再试另一个。
+
+    - 15 位以上：美团赏金活动（需要 poi_event_id 等额外参数，本实现暂不支持）
+    - 7 位以下：聚合活动，主 `SilkwormFusion.FusionGrabPromotionQuota`（source=2）
+    - 其余：标准活动，主 `SilkwormService.GrabPromotionQuota`
+    返回原始响应；抢到与否用 `order_id_of(res) > 0` 判断。
+    """
+    cleaned, pid = _clean_promo_id(promotion_id)
+    if not pid:
+        raise ValueError("缺少 promotion_id")
+    if pid >= SHANGJIN_ID_FLOOR:
+        raise ValueError("美团赏金活动需要 wm_poi_id / poi_event_id，本实现暂不支持")
+    flat, flon, city = _geo(lat, lon, city_code)
+
+    body: dict[str, Any] = {
+        "promotion_id": pid,
+        "store_platform": int(store_platform or 1),
+        "if_advance_order": bool(advance),
+        "if_pre_order": False,
+        "advance_order_time": 0,
+        "latitude": flat,
+        "longitude": flon,
+        "city_code": city,
+    }
+    for key, value in (
+        ("redpack_id", redpack_id),
+        ("vip_promotion_card_id", vip_promotion_card_id),
+        ("vip_extra_silk_card_id", vip_extra_silk_card_id),
+    ):
+        try:
+            if value is not None and int(value) > 0:
+                body[key] = int(value)
+        except (TypeError, ValueError):
+            continue
+
+    if pid < FUSION_ID_CEILING:
+        primary = ("SilkwormFusion", "FusionService.FusionGrabPromotionQuota", {**body, "source": 2})
+        fallback = ("Silkworm", "SilkwormService.GrabPromotionQuota", dict(body))
+    else:
+        primary = ("Silkworm", "SilkwormService.GrabPromotionQuota", dict(body))
+        fallback = ("SilkwormFusion", "FusionService.FusionGrabPromotionQuota", {**body, "source": 2})
+
+    try:
+        res = _call(account, primary[0], primary[1], primary[2], city_code=city)
+    except Exception:
+        # 主路由跨表未命中或方法不存在时换另一个；换完还失败就把错误抛给调用方
+        res = _call(account, fallback[0], fallback[1], fallback[2], city_code=city)
+    res["order_id"] = order_id_of(res)
+    return res
