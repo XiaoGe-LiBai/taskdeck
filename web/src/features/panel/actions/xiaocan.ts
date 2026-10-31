@@ -124,3 +124,46 @@ export async function fetchStoresAction(params: {
     total: Number(data.count ?? 0),
   };
 }
+
+/** 清空运行日志（只清当前用户可见范围）。 */
+export async function clearJobLogsAction(): Promise<string> {
+  const resp = await panelSend<{ cleared: number }>('DELETE', '/xiaocan/job-logs');
+  if (!resp.ok) {
+    return `error:${resp.msg || '清空失败'}`;
+  }
+  revalidatePath('/dashboard/assistant');
+  return `ok:已清空 ${resp.data?.cleared ?? 0} 条日志`;
+}
+
+/** 抢单/预约：at 为空立即抢；填 datetime-local 则到点触发。 */
+export async function scheduleGrabAction(_prev: string, formData: FormData): Promise<string> {
+  const accountId = Number(formData.get('account_id') ?? 0);
+  const promotionId = String(formData.get('promotion_id') ?? '').trim();
+  const at = String(formData.get('at') ?? '').trim();
+  if (!Number.isInteger(accountId) || accountId <= 0) {
+    return 'error:请选择账号';
+  }
+  if (!promotionId) {
+    return 'error:请填写活动 ID';
+  }
+  const payload: Record<string, unknown> = {
+    promotion_id: promotionId,
+    advance: formData.get('advance') === 'on',
+    lat: String(formData.get('lat') ?? '').trim() || undefined,
+    lon: String(formData.get('lon') ?? '').trim() || undefined,
+    city_code: String(formData.get('city_code') ?? '').trim() || undefined,
+  };
+  if (at) {
+    payload.at = at;
+  }
+  const resp = await panelSend<{ id: string; at: string }>(
+    'POST',
+    `/xiaocan/accounts/${accountId}/grab`,
+    payload,
+  );
+  if (!resp.ok || !resp.data) {
+    return `error:${resp.msg || '提交失败'}`;
+  }
+  revalidatePath('/dashboard/assistant');
+  return `ok:任务 ${resp.data.id} 已排队，计划 ${resp.data.at}`;
+}

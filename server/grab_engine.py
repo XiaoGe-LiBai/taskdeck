@@ -14,6 +14,7 @@ from typing import Any
 
 import core
 import xiaocan_actions as actions
+import xiaocan_stats as stats
 
 _JOBS: dict[str, dict[str, Any]] = {}
 _TIMERS: dict[str, threading.Thread] = {}
@@ -63,11 +64,15 @@ def _fire(job_id: str, cancelled: threading.Event) -> None:
         job["order_id"] = int(result.get("order_id") or 0)
         job["status"] = "success" if job["order_id"] > 0 else "failed"
         job["message"] = "" if job["order_id"] > 0 else (result.get("msg") or "未返回官方订单号")
+        if job["order_id"] > 0:
+            stats.record_order(job["account_id"], order_sn=f"grab-{job['order_id']}",
+                               promotion_order_id=job["order_id"], status="pending")
     except Exception as exc:  # 失败原因要留给界面看，不能只写日志
         job["status"] = "failed"
         job["message"] = str(exc)
     finally:
         job["finished_at"] = core.iso()
+        stats.record_job(job["account_id"], "grab", job["status"], job.get("message") or "")
         with _LOCK:
             _TIMERS.pop(job_id, None)
 

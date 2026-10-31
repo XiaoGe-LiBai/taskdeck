@@ -17,6 +17,7 @@ import notify
 import vip
 import grab_engine
 import xiaocan_actions
+import xiaocan_stats
 import xiaocan_bridge as xc
 import xiaocan_tasks
 
@@ -1603,6 +1604,8 @@ def xiaocan_run_daily(aid: int):
     if not account:
         return core.fail("账号不存在", 404)
     result = xiaocan_actions.run_daily(account)
+    xiaocan_stats.record_job(aid, "daily", "success" if result["ok"] else "failed",
+                             f"失败 {result['failed']} 步，跳过 {result['skipped']} 步")
     core.log_admin_action("xiaocan_daily", None, {"account_id": aid, "failed": result["failed"]})
     return core.ok(result)
 

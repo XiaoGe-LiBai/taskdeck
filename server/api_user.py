@@ -12,6 +12,7 @@ import core
 import runner_dispatch
 import vip
 import xiaocan_actions
+import xiaocan_stats
 import xiaocan_bridge as xc
 import xiaocan_tasks
 
@@ -974,6 +975,100 @@ def delete_account(account_id: int):
     return core.ok({})
 
 
+def _my_account_ids() -> list[int] | None:
+    """当前用户可见的账号范围；管理员返回 None 表示全部。"""
+    user = core.current_user()
+    if user.get("role") == "admin":
+        return None
+    rows = core.query("SELECT id FROM accounts WHERE user_id=?", (user["id"],))
+    return [r["id"] for r in rows]
+
+
+@bp.post("/xiaocan/accounts/<int:account_id>/grab")
+@core.require_login
+def schedule_grab_api(account_id: int):
+    """所有者发起抢单或预约（立即 / 到点）。"""
+    import grab_engine
+    account = _own_account(account_id)
+    if not account:
+        return core.fail("账号不存在")
+    body = request.get_json(silent=True) or {}
+    promotion_id = str(body.get("promotion_id") or "").strip()
+    if not promotion_id:
+        return core.fail("请填写活动 ID")
+    at_ts = None
+    at_raw = body.get("at")
+    if at_raw not in (None, ""):
+        try:
+            at_ts = float(at_raw)
+        except (TypeError, ValueError):
+            parsed = core.parse_iso(str(at_raw))
+            if not parsed:
+                return core.fail("时间格式不正确")
+            at_ts = parsed.timestamp()
+    try:
+        job = grab_engine.schedule(
+            account_id, promotion_id, at_ts=at_ts, advance=bool(body.get("advance")),
+            lat=body.get("lat"), lon=body.get("lon"), city_code=body.get("city_code"),
+            store_platform=int(body.get("store_platform") or 1),
+        )
+    except ValueError as exc:
+        return core.fail(str(exc))
+    xiaocan_stats.record_job(account_id, "grab", "scheduled",
+                             f"活动 {promotion_id} 计划于 {job['at']}")
+    return core.ok(job)
+
+
+@bp.get("/xiaocan/stats")
+@core.require_login
+def xiaocan_stats_api():
+    """累计到账 / 在途待入账 / 今日已省。"""
+    return core.ok(xiaocan_stats.stats(_my_account_ids()))
+
+
+@bp.get("/xiaocan/chart-data")
+@core.require_login
+def xiaocan_chart_api():
+    """近 7 天返现趋势 + 状态/平台分布 + 今日汇总。"""
+    return core.ok(xiaocan_stats.chart_data(_my_account_ids()))
+
+
+@bp.get("/xiaocan/job-logs")
+@core.require_login
+def xiaocan_job_logs_api():
+    limit = int(request.args.get("limit", 50) or 50)
+    return core.ok({"jobs": xiaocan_stats.list_jobs(_my_account_ids(), limit)})
+
+
+@bp.delete("/xiaocan/job-logs")
+@core.require_login
+def xiaocan_job_logs_clear_api():
+    return core.ok({"cleared": xiaocan_stats.clear_jobs(_my_account_ids())})
+
+
+@bp.get("/xiaocan/scheduler")
+@core.require_login
+def xiaocan_scheduler_api():
+    """调度中心视图：抢单任务（进程内）+ 等级刷新线程状态。"""
+    import grab_engine
+    scope = _my_account_ids()
+    jobs = grab_engine.list_jobs()
+    if scope is not None:
+        jobs = [job for job in jobs if job["account_id"] in scope]
+    return core.ok({
+        "grab_jobs": jobs,
+        "level_refresh": core.get_setting("level_refresh_enabled", "true") == "true",
+    })
+
+
+@bp.get("/xiaocan/time")
+@core.require_login
+def xiaocan_time_api():
+    """服务器时间（该项目未接 NTP 授时，此处只回本机时钟，避免假装已校准）。"""
+    return core.ok({"iso": core.iso(), "epoch": int(core.now_dt().timestamp()),
+                    "ntp_synced": False})
+
+
 def _store_args() -> dict:
     """店铺类接口的公共查询参数（定位来自请求，不落库）。"""
     args = request.args
@@ -1040,7 +1135,10 @@ def run_own_daily_api(account_id: int):
     account = _own_account(account_id)
     if not account:
         return core.fail("账号不存在")
-    return core.ok(xiaocan_actions.run_daily(account))
+    result = xiaocan_actions.run_daily(account)
+    xiaocan_stats.record_job(account_id, "daily", "success" if result["ok"] else "failed",
+                             f"失败 {result['failed']} 步，跳过 {result['skipped']} 步")
+    return core.ok(result)
 
 
 @bp.post("/xiaocan/accounts/<int:account_id>/refresh-level")

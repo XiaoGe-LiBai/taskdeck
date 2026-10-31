@@ -182,6 +182,25 @@ DELETE /api/admin/xiaocan/grab-jobs/<job_id>      取消
 - `at` 传时间戳或 ISO 时间即预约；不传立即执行。到点前 0.5 秒内把轮询间隔压到 5ms。
 - 15 位以上的美团赏金活动（`poi_event_id`）需要额外参数，当前**显式拒绝**并说明原因，不会发出注定失败的请求。
 
+### 助手看板
+
+面板「业务 → 助手看板」(`/dashboard/assistant`)：
+
+- **累计到账返现** = 已完成订单返现之和；**在途/待入账** = pending + auditing；**今日已省外卖费** = 今天创建、未被拒/取消的返现之和（口径与开源版一致）
+- 近 7 天返现柱状、订单状态/平台分布
+- **任务调度中心**：抢单任务（进程内）+ 等级刷新开关
+- **运行日志**：抢单/日常执行记录，可一键清空
+- **抢单预约表单**：选账号、填活动 ID、可选计划时间与超前券
+
+``` 
+GET    /api/xiaocan/stats        GET /api/xiaocan/chart-data
+GET    /api/xiaocan/scheduler    GET /api/xiaocan/time
+GET    /api/xiaocan/job-logs     DELETE /api/xiaocan/job-logs
+POST   /api/xiaocan/accounts/<id>/grab
+```
+
+订单与日志存本项目的 `xc_orders` / `xc_job_logs` 表；抢单成功会自动落一条在途订单。
+
 ### WAF 熔断
 
 网关命中腾讯云 WAF 时返回 403。服务端识别后进入 **15 秒冷却**（`server/xiaocan_bridge.py`）：冷却期内所有网关调用直接失败、不发网络请求，避免越重试封得越久；冷却结束自动恢复。

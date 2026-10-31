@@ -54,6 +54,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: 'xiaocan', href: '/dashboard/xiaocan', label: '小蚕', userOk: true },
       { key: 'stores', href: '/dashboard/stores', label: '附近霸王餐', userOk: true },
+      { key: 'assistant', href: '/dashboard/assistant', label: '助手看板', userOk: true },
       { key: 'yyb', href: '/dashboard/yyb', label: '应用宝', userOk: true },
       { key: 'market', href: '/dashboard/market', label: '项目市场', aliases: ['/dashboard/submit'], userOk: true },
       { key: 'profile', href: '/dashboard/profile', label: '会员中心', userOk: true },

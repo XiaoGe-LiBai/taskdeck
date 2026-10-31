@@ -104,7 +104,8 @@ export const StoresExplorer = (props: {
       <Card title="查询条件" description={currentHint}>
         <div className="
           grid gap-3
-          sm:grid-cols-2 lg:grid-cols-5
+          sm:grid-cols-2
+          lg:grid-cols-5
         "
         >
           <label className="flex flex-col gap-1 text-sm font-medium">
@@ -145,7 +146,34 @@ export const StoresExplorer = (props: {
               className="h-9"
             />
           </label>
-          <div className="flex items-end">
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (!navigator.geolocation) {
+                  setMessage('当前浏览器不支持定位，请手动填写经纬度');
+                  return;
+                }
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => {
+                    setLocation(prev => ({
+                      ...prev,
+                      lat: pos.coords.latitude.toFixed(6),
+                      lon: pos.coords.longitude.toFixed(6),
+                    }));
+                    setMessage('已使用浏览器定位');
+                  },
+                  () => setMessage('定位被拒绝或不可用，请手动填写'),
+                  { timeout: 10000 },
+                );
+              }}
+              className="
+                h-9 rounded-md border px-3 text-xs
+                hover:bg-muted
+              "
+            >
+              使用我的定位
+            </button>
             <button
               type="button"
               disabled={pending}
@@ -210,15 +238,22 @@ export const StoresExplorer = (props: {
                   <div
                     key={`${storeName(item)}-${index}`}
                     className="
-                      flex flex-wrap items-center justify-between gap-2 rounded-lg
-                      border p-3
+                      flex flex-wrap items-center justify-between gap-2
+                      rounded-lg border p-3
                     "
                   >
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-foreground">
+                      <div className="
+                        truncate text-sm font-medium text-foreground
+                      "
+                      >
                         {storeName(item)}
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <div className="
+                        mt-1 flex flex-wrap items-center gap-2 text-xs
+                        text-muted-foreground
+                      "
+                      >
                         {storeDistance(item) && <span>{storeDistance(item)}</span>}
                         {storeRebate(item) && <Tag tone="warning">{storeRebate(item)}</Tag>}
                         {typeof item.left_number === 'number' && (
