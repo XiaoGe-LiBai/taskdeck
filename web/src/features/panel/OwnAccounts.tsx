@@ -1,7 +1,13 @@
 import type { PanelAccount } from '@/types/Panel';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
-import { deleteAccountAction, refreshOwnAccountLevelAction, signupAccountAction, toggleOwnFeatureAction } from '@/features/panel/actions';
+import {
+  deleteAccountAction,
+  refreshOwnAccountLevelAction,
+  runMyXiaocanDailyAction,
+  signupAccountAction,
+  toggleOwnFeatureAction,
+} from '@/features/panel/actions';
 import { ActionForm, Collapsible } from '@/features/panel/Client';
 import { StateForm } from '@/features/panel/ExpireEditor';
 import { Card, Empty, fmtTime, Table, Tag, Td } from '@/features/panel/Ui';
@@ -130,6 +136,15 @@ export const OwnAccounts = (props: { accounts: PanelAccount[] }) => {
                     title="向小蚕平台查一次该账号的真实 SVIP 等级"
                   >
                     刷新等级
+                  </ActionForm>
+
+                  {/* 日常：元宝签到 → 会员签到抽奖 → 任务总览，逐条回显结果 */}
+                  <ActionForm
+                    action={runMyXiaocanDailyAction}
+                    fields={{ account_id: row.id }}
+                    title="元宝签到 → 会员签到抽奖 → 任务总览"
+                  >
+                    执行日常
                   </ActionForm>
 
                   <ActionForm

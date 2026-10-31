@@ -6,6 +6,7 @@ import {
   deleteAccountAction,
   refreshAccountLevelAction,
   refreshAccountLevelsAction,
+  runAdminXiaocanDailyAction,
   signupAccountAction,
   toggleAccountFeatureAction,
   toggleAccountStatusAction,
@@ -245,6 +246,14 @@ export default async function AccountsPage(props: {
                               title="向小蚕平台查一次该账号的真实 SVIP 等级"
                             >
                               刷新等级
+                            </ActionForm>
+
+                            <ActionForm
+                              action={runAdminXiaocanDailyAction}
+                              fields={{ account_id: row.id }}
+                              title="元宝签到 → 会员签到抽奖 → 任务总览"
+                            >
+                              执行日常
                             </ActionForm>
 
                             <ActionForm

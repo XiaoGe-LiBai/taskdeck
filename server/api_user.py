@@ -11,6 +11,7 @@ from flask import Blueprint, Response, abort, request, send_file
 import core
 import runner_dispatch
 import vip
+import xiaocan_actions
 import xiaocan_bridge as xc
 import xiaocan_tasks
 
@@ -971,6 +972,19 @@ def delete_account(account_id: int):
         (core.current_user()["id"], core.current_user()["id"]),
     )
     return core.ok({})
+
+
+@bp.post("/xiaocan/accounts/<int:account_id>/daily")
+@core.require_login
+def run_own_daily_api(account_id: int):
+    """账号所有者执行一次日常：元宝签到 → 会员签到抽奖 → 任务总览。
+
+    逐条返回结果；单步失败或「已签到」不会中断其它步骤。
+    """
+    account = _own_account(account_id)
+    if not account:
+        return core.fail("账号不存在")
+    return core.ok(xiaocan_actions.run_daily(account))
 
 
 @bp.post("/xiaocan/accounts/<int:account_id>/refresh-level")

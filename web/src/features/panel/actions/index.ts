@@ -103,3 +103,11 @@ export {
 } from './users';
 
 export type { VipLevelBenefit } from './users';
+
+export {
+  runAdminXiaocanDailyAction,
+  runMyXiaocanDailyAction,
+  runXiaocanDailyAction,
+} from './xiaocan';
+
+export type { XcDailyResult, XcDailyStep } from './xiaocan';
