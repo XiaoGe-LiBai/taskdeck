@@ -255,3 +255,139 @@ export async function claimMeituanAction(): Promise<{ ok: boolean; msg: string; 
   revalidatePath('/dashboard/assistant');
   return { ok: true, msg: '', data: resp.data };
 }
+
+// ---------------------------------------------------------------- 霸王餐订单
+
+export type XcOrder = {
+  id: number;
+  account_id: number | null;
+  store_name: string;
+  platform: string;
+  order_money: number;
+  rebate_money: number;
+  status: string;
+  order_sn: string;
+  platform_order_id: string;
+  promotion_order_id: number;
+  created_time: string;
+  note: string;
+};
+
+export async function createOrderAction(_prev: string, formData: FormData): Promise<string> {
+  const payload: Record<string, unknown> = {
+    account_id: Number(formData.get('account_id') ?? 0) || undefined,
+    store_name: String(formData.get('store_name') ?? '').trim(),
+    platform: String(formData.get('platform') ?? 'meituan'),
+    order_money: Number(formData.get('order_money') ?? 0),
+    rebate_money: Number(formData.get('rebate_money') ?? 0),
+    order_sn: String(formData.get('order_sn') ?? '').trim() || undefined,
+  };
+  const resp = await panelSend('POST', '/xiaocan/orders', payload);
+  if (!resp.ok) {
+    return `error:${resp.msg || '录入失败'}`;
+  }
+  revalidatePath('/dashboard/assistant');
+  return 'ok:订单已录入';
+}
+
+export async function deleteOrderAction(_prev: string, formData: FormData): Promise<string> {
+  const id = Number(formData.get('order_id') ?? 0);
+  const resp = await panelSend('DELETE', `/xiaocan/orders/${id}`);
+  if (!resp.ok) {
+    return `error:${resp.msg || '删除失败'}`;
+  }
+  revalidatePath('/dashboard/assistant');
+  return 'ok:已删除';
+}
+
+export async function submitPlatformIdAction(_prev: string, formData: FormData): Promise<string> {
+  const id = Number(formData.get('order_id') ?? 0);
+  const platformOrderId = String(formData.get('platform_order_id') ?? '').trim();
+  if (!platformOrderId) {
+    return 'error:请填写外卖平台单号';
+  }
+  const resp = await panelSend('POST', `/xiaocan/orders/${id}/submit-platform-id`, {
+    platform_order_id: platformOrderId,
+  });
+  if (!resp.ok) {
+    return `error:${resp.msg || '提交失败'}`;
+  }
+  revalidatePath('/dashboard/assistant');
+  return 'ok:外卖单号已提交审核';
+}
+
+export async function orderAction(
+  orderId: number,
+  action: 'delay-voucher' | 'use-free-card',
+): Promise<{ ok: boolean; msg: string }> {
+  const resp = await panelSend('POST', `/xiaocan/orders/${orderId}/${action}`, {});
+  revalidatePath('/dashboard/assistant');
+  return resp.ok ? { ok: true, msg: '' } : { ok: false, msg: resp.msg || '执行失败' };
+}
+
+// ---------------------------------------------------------------- 店铺监控
+
+export type StoreWatch = {
+  id: number;
+  account_id: number;
+  kind: string;
+  params: { keyword?: string; promotion_id?: string; lat?: string; lon?: string; city_code?: string };
+  interval_sec: number;
+  status: string;
+  hits: number;
+  last_run: number;
+  last_error: string;
+};
+
+export async function createWatchAction(_prev: string, formData: FormData): Promise<string> {
+  const kind = String(formData.get('kind') ?? 'name');
+  const params: Record<string, string> = {
+    lat: String(formData.get('lat') ?? '').trim(),
+    lon: String(formData.get('lon') ?? '').trim(),
+    city_code: String(formData.get('city_code') ?? '').trim(),
+  };
+  const keyword = String(formData.get('keyword') ?? '').trim();
+  const promotionId = String(formData.get('promotion_id') ?? '').trim();
+  if (keyword) {
+    params.keyword = keyword;
+  }
+  if (promotionId) {
+    params.promotion_id = promotionId;
+  }
+  const resp = await panelSend('POST', '/xiaocan/watch', {
+    account_id: Number(formData.get('account_id') ?? 0),
+    kind,
+    params,
+    interval_sec: Number(formData.get('interval_sec') ?? 300),
+  });
+  if (!resp.ok) {
+    return `error:${resp.msg || '创建失败'}`;
+  }
+  revalidatePath('/dashboard/assistant');
+  return 'ok:监控已创建';
+}
+
+export async function deleteWatchAction(_prev: string, formData: FormData): Promise<string> {
+  const id = Number(formData.get('watch_id') ?? 0);
+  const resp = await panelSend('DELETE', `/xiaocan/watch/${id}`);
+  revalidatePath('/dashboard/assistant');
+  return resp.ok ? 'ok:已删除' : `error:${resp.msg || '删除失败'}`;
+}
+
+export async function setWatchStatusAction(
+  watchId: number,
+  status: 'active' | 'paused',
+): Promise<{ ok: boolean; msg: string }> {
+  const resp = await panelSend('POST', `/xiaocan/watch/${watchId}/status`, { status });
+  revalidatePath('/dashboard/assistant');
+  return resp.ok ? { ok: true, msg: '' } : { ok: false, msg: resp.msg || '操作失败' };
+}
+
+export async function runWatchAction(watchId: number): Promise<{ ok: boolean; msg: string }> {
+  const resp = await panelSend<{ new: unknown[]; scanned: number }>('POST', `/xiaocan/watch/${watchId}/run`, {});
+  revalidatePath('/dashboard/assistant');
+  if (!resp.ok || !resp.data) {
+    return { ok: false, msg: resp.msg || '执行失败' };
+  }
+  return { ok: true, msg: `扫描 ${resp.data.scanned} 条，新增 ${resp.data.new.length} 条` };
+}

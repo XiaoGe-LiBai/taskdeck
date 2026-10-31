@@ -83,8 +83,15 @@ METHODS: dict[str, tuple[str, str]] = {
     "user_claim_points": ("ActivityTask", "ActivityTaskMobileService.UserClaimPoints"),
     "vip_prizes_lottery": ("SilkwormVip", "SilkwormVipMobile.VipPrizesLottery"),
     "wait_claimed_points": ("ActivityTask", "ActivityTaskMobileService.WaitClaimedPoints"),
+    "submit_platform_order_id": ("SilkwormPromotion", "PromotionService.SubmitPlatformOrderId"),
+    "cancel_promotion_quota": ("SilkwormPromotion", "PromotionService.CancelPromotionQuota"),
 }
 
+
+# 少数接口的 app_id 与活动类不同：提交单号走 App 20
+APP_ID_OVERRIDES: dict[str, int] = {
+    "submit_platform_order_id": 20,
+}
 
 def resolve(key: str) -> tuple[str, str]:
     """校验 key 是否在允许清单里，返回 (server, method)。"""
@@ -105,12 +112,13 @@ def call(account: dict, key: str, body: dict[str, Any] | None = None, *,
     payload: dict[str, Any] = {"silk_id": int(silk_id)}
     if body:
         payload.update(body)
-    payload.setdefault("app_id", ACTIVITY_APP_ID)
+    app_id = APP_ID_OVERRIDES.get(key, ACTIVITY_APP_ID)
+    payload.setdefault("app_id", app_id)
     return xc.xiaocan_rpc(
         server, method, payload,
         user_id=str(account.get("xc_user_id") or "0"),
         silk_id=silk_id,
         token=token,
-        app_id=ACTIVITY_APP_ID,
+        app_id=app_id,
         city_code=city_code if city_code is not None else account.get("city_code"),
     )

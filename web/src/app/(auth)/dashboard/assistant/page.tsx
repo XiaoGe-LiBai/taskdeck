@@ -1,7 +1,9 @@
-import type { MeituanAccount, XcAction } from '@/features/panel/actions';
+import type { MeituanAccount, StoreWatch, XcAction, XcOrder } from '@/features/panel/actions';
 import { ClearLogsButton } from '@/features/panel/ClearLogsButton';
 import { GrabScheduler } from '@/features/panel/GrabScheduler';
 import { MeituanCard } from '@/features/panel/MeituanCard';
+import { OrdersCard } from '@/features/panel/OrdersCard';
+import { WatchCard } from '@/features/panel/WatchCard';
 import { Card, Empty, PageTitle, StatCard, Tag } from '@/features/panel/Ui';
 import { XiaocanToolbox } from '@/features/panel/XiaocanToolbox';
 import { panelGet } from '@/libs/PanelApi';
@@ -91,6 +93,8 @@ export default async function AssistantPage() {
   const catalog = (await panelGet<{ actions: XcAction[] }>('/xiaocan/actions'))?.actions ?? [];
   const meituan = await panelGet<{ accounts: MeituanAccount[]; runtime_ready: boolean }>('/xiaocan/meituan/accounts');
   const clock = await panelGet<TimeStatus>('/xiaocan/time');
+  const orderData = await panelGet<{ orders: XcOrder[] }>('/xiaocan/orders?limit=50');
+  const watchData = await panelGet<{ watches: StoreWatch[] }>('/xiaocan/watch');
 
   const trend = chart?.trend ?? [];
   const peak = Math.max(1, ...trend.map(point => point.rebate));
@@ -194,6 +198,18 @@ export default async function AssistantPage() {
 
       <div className="mb-6">
         <XiaocanToolbox accounts={accounts ?? []} actions={catalog} />
+      </div>
+
+      <div className="mb-6">
+        <OrdersCard orders={orderData?.orders ?? []} accounts={accounts ?? []} />
+      </div>
+
+      <div className="mb-6">
+        <WatchCard
+          watches={watchData?.watches ?? []}
+          accounts={accounts ?? []}
+          defaultLocation={{ lat: '22.5431', lon: '114.0579', city: '440303' }}
+        />
       </div>
 
       <div className="mb-6">

@@ -106,6 +106,14 @@ export type { VipLevelBenefit } from './users';
 
 export {
   callXiaocanAction,
+  createOrderAction,
+  createWatchAction,
+  deleteOrderAction,
+  deleteWatchAction,
+  orderAction,
+  runWatchAction,
+  setWatchStatusAction,
+  submitPlatformIdAction,
   cancelMeituanAuthAction,
   claimMeituanAction,
   deleteMeituanAccountAction,
@@ -120,4 +128,4 @@ export {
   scheduleGrabAction,
 } from './xiaocan';
 
-export type { MeituanAccount, MeituanSession, StoreItem, StoresResult, XcAction, XcActionParam, XcDailyResult, XcDailyStep } from './xiaocan';
+export type { MeituanAccount, MeituanSession, StoreWatch, XcOrder, StoreItem, StoresResult, XcAction, XcActionParam, XcDailyResult, XcDailyStep } from './xiaocan';

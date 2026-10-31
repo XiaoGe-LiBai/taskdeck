@@ -15,6 +15,8 @@ import meituan_runner
 import time_service
 import xiaocan_actions
 import xiaocan_extras
+import xiaocan_orders
+import store_watch
 import xiaocan_stats
 import xiaocan_bridge as xc
 import xiaocan_tasks
@@ -985,6 +987,138 @@ def _my_account_ids() -> list[int] | None:
         return None
     rows = core.query("SELECT id FROM accounts WHERE user_id=?", (user["id"],))
     return [r["id"] for r in rows]
+
+
+# ---------------------------------------------------------------- 霸王餐订单
+
+@bp.get("/xiaocan/orders")
+@core.require_login
+def xiaocan_orders_list():
+    status = (request.args.get("status") or "").strip()
+    limit = int(request.args.get("limit", 100) or 100)
+    return core.ok({"orders": xiaocan_orders.list_orders(_my_account_ids(), status=status, limit=limit)})
+
+
+@bp.post("/xiaocan/orders")
+@core.require_login
+def xiaocan_orders_create():
+    body = request.get_json(silent=True) or {}
+    account_id = body.get("account_id")
+    if account_id is not None and not _own_account(int(account_id)):
+        return core.fail("账号不存在")
+    try:
+        order = xiaocan_orders.create_order(int(account_id) if account_id else None, body)
+    except ValueError as exc:
+        return core.fail(str(exc))
+    return core.ok(order)
+
+
+@bp.put("/xiaocan/orders/<int:order_id>")
+@core.require_login
+def xiaocan_orders_update(order_id: int):
+    try:
+        return core.ok(xiaocan_orders.update_order(order_id, request.get_json(silent=True) or {}, _my_account_ids()))
+    except ValueError as exc:
+        return core.fail(str(exc))
+
+
+@bp.delete("/xiaocan/orders/<int:order_id>")
+@core.require_login
+def xiaocan_orders_delete(order_id: int):
+    if not xiaocan_orders.delete_order(order_id, _my_account_ids()):
+        return core.fail("订单不存在")
+    return core.ok({"deleted": order_id})
+
+
+@bp.post("/xiaocan/orders/<int:order_id>/submit-platform-id")
+@core.require_login
+def xiaocan_orders_submit_id(order_id: int):
+    body = request.get_json(silent=True) or {}
+    try:
+        result = xiaocan_orders.submit_platform_order_id(
+            order_id, body.get("platform_order_id"), _my_account_ids())
+    except ValueError as exc:
+        return core.fail(str(exc))
+    except Exception as exc:
+        return core.fail(f"提交外卖单号失败：{exc}")
+    xiaocan_stats.record_job(None, "order_submit", "success", f"订单 #{order_id}")
+    return core.ok(result)
+
+
+@bp.post("/xiaocan/orders/<int:order_id>/delay-voucher")
+@core.require_login
+def xiaocan_orders_delay(order_id: int):
+    try:
+        result = xiaocan_orders.delay_voucher(order_id, _my_account_ids())
+    except ValueError as exc:
+        return core.fail(str(exc))
+    except Exception as exc:
+        return core.fail(f"申请延时失败：{exc}")
+    return core.ok(result)
+
+
+@bp.post("/xiaocan/orders/<int:order_id>/use-free-card")
+@core.require_login
+def xiaocan_orders_free_card(order_id: int):
+    try:
+        result = xiaocan_orders.use_free_card(order_id, _my_account_ids())
+    except ValueError as exc:
+        return core.fail(str(exc))
+    except Exception as exc:
+        return core.fail(f"核销免单卡失败：{exc}")
+    return core.ok(result)
+
+
+# ---------------------------------------------------------------- 店铺监控
+
+@bp.get("/xiaocan/watch")
+@core.require_login
+def xiaocan_watch_list():
+    return core.ok({"watches": store_watch.list_watches(_my_account_ids())})
+
+
+@bp.post("/xiaocan/watch")
+@core.require_login
+def xiaocan_watch_create():
+    body = request.get_json(silent=True) or {}
+    account_id = int(body.get("account_id") or 0)
+    if not _own_account(account_id):
+        return core.fail("账号不存在")
+    try:
+        created = store_watch.create_watch(
+            account_id, str(body.get("kind") or ""), body.get("params") or {},
+            int(body.get("interval_sec") or store_watch.DEFAULT_INTERVAL))
+    except ValueError as exc:
+        return core.fail(str(exc))
+    return core.ok(created)
+
+
+@bp.delete("/xiaocan/watch/<int:watch_id>")
+@core.require_login
+def xiaocan_watch_delete(watch_id: int):
+    if not store_watch.delete_watch(watch_id, _my_account_ids()):
+        return core.fail("监控不存在")
+    return core.ok({"deleted": watch_id})
+
+
+@bp.post("/xiaocan/watch/<int:watch_id>/status")
+@core.require_login
+def xiaocan_watch_status(watch_id: int):
+    body = request.get_json(silent=True) or {}
+    try:
+        store_watch.set_status(watch_id, str(body.get("status") or ""))
+    except ValueError as exc:
+        return core.fail(str(exc))
+    return core.ok({"updated": watch_id})
+
+
+@bp.post("/xiaocan/watch/<int:watch_id>/run")
+@core.require_login
+def xiaocan_watch_run(watch_id: int):
+    target = next((w for w in store_watch.list_watches(_my_account_ids()) if w["id"] == watch_id), None)
+    if not target:
+        return core.fail("监控不存在")
+    return core.ok(store_watch.run_once(target))
 
 
 # ---------------------------------------------------------------- 美团账号

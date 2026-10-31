@@ -182,6 +182,37 @@ DELETE /api/admin/xiaocan/grab-jobs/<job_id>      取消
 - `at` 传时间戳或 ISO 时间即预约；不传立即执行。到点前 0.5 秒内把轮询间隔压到 5ms。
 - 15 位以上的美团赏金活动（`poi_event_id`）需要额外参数，当前**显式拒绝**并说明原因，不会发出注定失败的请求。
 
+### 霸王餐订单（录入 / 提交单号 / 延时券 / 免单卡）
+
+```
+GET    /api/xiaocan/orders?status=&limit=
+POST   /api/xiaocan/orders                       手工录入
+PUT    /api/xiaocan/orders/<id>                  改字段（状态、金额等）
+DELETE /api/xiaocan/orders/<id>
+POST   /api/xiaocan/orders/<id>/submit-platform-id   {"platform_order_id":"..."}
+POST   /api/xiaocan/orders/<id>/delay-voucher    领红包延时 2 小时
+POST   /api/xiaocan/orders/<id>/use-free-card    核销免单卡
+```
+
+- 提交单号走 `SilkwormPromotion.PromotionService.SubmitPlatformOrderId`（App 20），成功后本地状态转 `auditing`；
+- 延时券按平台映射 `task_type`：美团 4、饿了么 3；比例返现订单会被拒绝；
+- 免单卡先查 `UserFreeOrderInfo` 取券 ID，再用外卖单号核销（美团 `order_business=1`，饿了么 2）；
+- 平台单号一旦绑定不允许二次修改（与官方一致）。
+
+### 店铺监控（关键词 / 店名 / 名额 / 同店多方案）
+
+```
+GET    /api/xiaocan/watch
+POST   /api/xiaocan/watch                        {account_id, kind, params, interval_sec}
+POST   /api/xiaocan/watch/<id>/run               立即执行一次
+POST   /api/xiaocan/watch/<id>/status            {"status":"active|paused"}
+DELETE /api/xiaocan/watch/<id>
+```
+
+- 后台常驻线程按各自间隔轮询（最小 60 秒），命中写 `xc_watch_seen` 去重后推送到已配置的通知渠道；
+- **只发现与通知，不自动抢单**——避免无人值守时把额度打空；
+- 扫描失败会把原因写进 `last_error`（WAF 熔断不再被吞成「0 条」）。
+
 ### 授时（NTP）
 
 抢单是秒级窗口，本机时钟漂移会直接导致空枪，所以加了授时层（`server/time_service.py`）：
