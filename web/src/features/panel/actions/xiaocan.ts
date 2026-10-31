@@ -188,3 +188,70 @@ export async function callXiaocanAction(
   revalidatePath('/dashboard/assistant');
   return { ok: true, msg: '', data: resp.data };
 }
+
+// ---------------------------------------------------------------- 美团
+
+export type MeituanSession = {
+  id: string;
+  status: 'waiting' | 'success' | 'failed' | 'expired' | 'cancelled';
+  url: string;
+  qr: string;
+  message: string;
+  has_token: boolean;
+};
+
+export type MeituanAccount = {
+  id: number;
+  account_id: number | null;
+  nickname: string;
+  token_mask: string;
+  saved_at: number;
+  last_claimed_at: number;
+};
+
+export async function startMeituanAuthAction(accountId?: number): Promise<{ ok: boolean; msg: string; session?: MeituanSession }> {
+  const resp = await panelSend<MeituanSession>('POST', '/xiaocan/meituan/auth/start', { account_id: accountId });
+  return resp.ok && resp.data ? { ok: true, msg: '', session: resp.data } : { ok: false, msg: resp.msg || '发起失败' };
+}
+
+export async function pollMeituanAuthAction(sessionId: string): Promise<MeituanSession | null> {
+  const resp = await panelSend<MeituanSession>('GET', `/xiaocan/meituan/auth/poll?session_id=${encodeURIComponent(sessionId)}`);
+  return resp.ok ? resp.data : null;
+}
+
+export async function cancelMeituanAuthAction(sessionId: string): Promise<void> {
+  await panelSend('POST', '/xiaocan/meituan/auth/cancel', { session_id: sessionId });
+}
+
+export async function saveMeituanTokenAction(_prev: string, formData: FormData): Promise<string> {
+  const token = String(formData.get('token') ?? '').trim();
+  const accountId = Number(formData.get('account_id') ?? 0) || undefined;
+  if (!token) {
+    return 'error:请粘贴美团凭证';
+  }
+  const resp = await panelSend('POST', '/xiaocan/meituan/accounts', { token, account_id: accountId });
+  if (!resp.ok) {
+    return `error:${resp.msg || '保存失败'}`;
+  }
+  revalidatePath('/dashboard/assistant');
+  return 'ok:美团凭证已保存';
+}
+
+export async function deleteMeituanAccountAction(_prev: string, formData: FormData): Promise<string> {
+  const id = Number(formData.get('record_id') ?? 0);
+  const resp = await panelSend('DELETE', `/xiaocan/meituan/accounts/${id}`);
+  if (!resp.ok) {
+    return `error:${resp.msg || '删除失败'}`;
+  }
+  revalidatePath('/dashboard/assistant');
+  return 'ok:已删除';
+}
+
+export async function claimMeituanAction(): Promise<{ ok: boolean; msg: string; data?: unknown }> {
+  const resp = await panelSend<Record<string, unknown>>('POST', '/xiaocan/meituan/claim', {});
+  if (!resp.ok) {
+    return { ok: false, msg: resp.msg || '领券失败' };
+  }
+  revalidatePath('/dashboard/assistant');
+  return { ok: true, msg: '', data: resp.data };
+}

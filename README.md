@@ -182,6 +182,22 @@ DELETE /api/admin/xiaocan/grab-jobs/<job_id>      取消
 - `at` 传时间戳或 ISO 时间即预约；不传立即执行。到点前 0.5 秒内把轮询间隔压到 5ms。
 - 15 位以上的美团赏金活动（`poi_event_id`）需要额外参数，当前**显式拒绝**并说明原因，不会发出注定失败的请求。
 
+### 美团账号
+
+面板「助手看板 → 美团账号」支持：扫码登录（美团 App 扫码 → 手机确认 → 自动存凭证）、手工粘贴凭证、绑定到小蚕账号、领取福利社券。
+
+```
+POST /api/xiaocan/meituan/auth/start     发起扫码，返回二维码 data URL
+GET  /api/xiaocan/meituan/auth/poll      轮询授权结果
+POST /api/xiaocan/meituan/claim          用当前凭证领券
+GET  /api/xiaocan/meituan/accounts       凭证列表（只回掩码）
+```
+
+凭证目录由 `MEITUAN_AUTH_DIR` 指定（默认数据卷下 `meituan/`），容器重建不掉。
+
+> **注意**：扫码与领券依赖 `server/meituan_assets/`（第三方 `run.js` + `mtuser-pt-passport` tgz，**无 LICENSE**），
+> 详见 `server/meituan_assets/NOTICE.md`。不需要美团功能时可整目录删除，其余功能不受影响。
+
 ### 小蚕工具箱（45 个动作）
 
 `server/xiaocan_methods.py` 维护「函数名 → 微服务/方法名」映射（70 项，来自对官方 App 的调用点整理），

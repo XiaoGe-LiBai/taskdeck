@@ -1,6 +1,7 @@
-import type { XcAction } from '@/features/panel/actions';
+import type { MeituanAccount, XcAction } from '@/features/panel/actions';
 import { ClearLogsButton } from '@/features/panel/ClearLogsButton';
 import { GrabScheduler } from '@/features/panel/GrabScheduler';
+import { MeituanCard } from '@/features/panel/MeituanCard';
 import { Card, Empty, PageTitle, StatCard, Tag } from '@/features/panel/Ui';
 import { XiaocanToolbox } from '@/features/panel/XiaocanToolbox';
 import { panelGet } from '@/libs/PanelApi';
@@ -79,6 +80,7 @@ export default async function AssistantPage() {
     panelGet<Array<{ id: number; nickname: string; account_info: string }>>('/xiaocan/accounts'),
   ]);
   const catalog = (await panelGet<{ actions: XcAction[] }>('/xiaocan/actions'))?.actions ?? [];
+  const meituan = await panelGet<{ accounts: MeituanAccount[]; runtime_ready: boolean }>('/xiaocan/meituan/accounts');
 
   const trend = chart?.trend ?? [];
   const peak = Math.max(1, ...trend.map(point => point.rebate));
@@ -182,6 +184,14 @@ export default async function AssistantPage() {
 
       <div className="mb-6">
         <XiaocanToolbox accounts={accounts ?? []} actions={catalog} />
+      </div>
+
+      <div className="mb-6">
+        <MeituanCard
+          accounts={meituan?.accounts ?? []}
+          runtimeReady={Boolean(meituan?.runtime_ready)}
+          boundAccounts={accounts ?? []}
+        />
       </div>
 
       <div className="mb-6">

@@ -11,6 +11,7 @@ from flask import Blueprint, Response, abort, request, send_file
 import core
 import runner_dispatch
 import vip
+import meituan_runner
 import xiaocan_actions
 import xiaocan_extras
 import xiaocan_stats
@@ -983,6 +984,100 @@ def _my_account_ids() -> list[int] | None:
         return None
     rows = core.query("SELECT id FROM accounts WHERE user_id=?", (user["id"],))
     return [r["id"] for r in rows]
+
+
+# ---------------------------------------------------------------- 美团账号
+
+def _meituan_scope():
+    return _my_account_ids()
+
+
+@bp.post("/xiaocan/meituan/auth/start")
+@core.require_login
+def meituan_auth_start():
+    """发起美团扫码授权，返回二维码（data URL）与会话 ID。"""
+    body = request.get_json(silent=True) or {}
+    account_id = body.get("account_id")
+    account_id = int(account_id) if account_id else None
+    if account_id is not None:
+        if not _own_account(account_id):
+            return core.fail("账号不存在")
+    try:
+        session = meituan_runner.start_session(account_id)
+    except Exception as exc:
+        return core.fail(f"发起美团扫码失败：{exc}")
+    return core.ok(session)
+
+
+@bp.get("/xiaocan/meituan/auth/poll")
+@core.require_login
+def meituan_auth_poll():
+    session_id = (request.args.get("session_id") or "").strip()
+    if not session_id:
+        return core.fail("缺少 session_id")
+    try:
+        return core.ok(meituan_runner.session_status(session_id))
+    except ValueError as exc:
+        return core.fail(str(exc))
+
+
+@bp.post("/xiaocan/meituan/auth/cancel")
+@core.require_login
+def meituan_auth_cancel():
+    body = request.get_json(silent=True) or {}
+    ok = meituan_runner.cancel_session((body.get("session_id") or "").strip())
+    return core.ok({"cancelled": ok})
+
+
+@bp.get("/xiaocan/meituan/accounts")
+@core.require_login
+def meituan_accounts_list():
+    return core.ok({"accounts": meituan_runner.list_accounts(_meituan_scope()),
+                    "runtime_ready": meituan_runner.available()})
+
+
+@bp.post("/xiaocan/meituan/accounts")
+@core.require_login
+def meituan_accounts_save():
+    """手工录入美团凭证（已有 token 时不必扫码）。"""
+    body = request.get_json(silent=True) or {}
+    token = str(body.get("token") or "").strip()
+    account_id = body.get("account_id")
+    if account_id is not None and not _own_account(int(account_id)):
+        return core.fail("账号不存在")
+    try:
+        saved = meituan_runner.save_account(
+            token, account_id=int(account_id) if account_id else None,
+            nickname=str(body.get("nickname") or ""))
+    except ValueError as exc:
+        return core.fail(str(exc))
+    return core.ok({**{k: v for k, v in saved.items() if k != "token"},
+                    "token_mask": meituan_runner.mask(saved["token"])})
+
+
+@bp.delete("/xiaocan/meituan/accounts/<int:record_id>")
+@core.require_login
+def meituan_accounts_delete(record_id: int):
+    if not meituan_runner.delete_account(record_id, _meituan_scope()):
+        return core.fail("记录不存在")
+    return core.ok({"deleted": record_id})
+
+
+@bp.post("/xiaocan/meituan/claim")
+@core.require_login
+def meituan_claim():
+    """用已登录的美团凭证领福利社券。"""
+    body = request.get_json(silent=True) or {}
+    record_id = body.get("record_id")
+    try:
+        result = meituan_runner.claim(int(record_id) if record_id else None)
+    except ValueError as exc:
+        return core.fail(str(exc))
+    except Exception as exc:
+        return core.fail(f"领券失败：{exc}")
+    xiaocan_stats.record_job(None, "meituan_claim", "success" if result.get("ok") else "failed",
+                             str(result.get("message") or "")[:200])
+    return core.ok(result)
 
 
 @bp.get("/xiaocan/actions")
