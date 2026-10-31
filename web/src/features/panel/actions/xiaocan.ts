@@ -78,3 +78,49 @@ function formatDaily(result: XcDailyResult): string {
     .join('；');
   return result.ok ? `ok:${summary}` : `error:${summary}`;
 }
+
+export type StoreItem = Record<string, unknown>;
+
+export type StoresResult = {
+  ok: boolean;
+  msg: string;
+  items: StoreItem[];
+  /** explore 会带总数，feed/search 没有就为 0 */
+  total: number;
+};
+
+/** 店铺检索：附近(feed) / 关键词(search) / 到店(explore)。定位来自页面，不落库。 */
+export async function fetchStoresAction(params: {
+  accountId: number;
+  kind: 'feed' | 'search' | 'explore';
+  q?: string;
+  lat: string;
+  lon: string;
+  cityCode: string;
+  offset?: number;
+}): Promise<StoresResult> {
+  const query = new URLSearchParams({
+    lat: params.lat,
+    lon: params.lon,
+    city_code: params.cityCode,
+    offset: String(params.offset ?? 0),
+    limit: '20',
+  });
+  if (params.kind === 'search') {
+    query.set('q', (params.q ?? '').trim());
+  }
+  const resp = await panelSend<Record<string, unknown>>(
+    'GET',
+    `/xiaocan/accounts/${params.accountId}/stores/${params.kind}?${query.toString()}`,
+  );
+  if (!resp.ok || !resp.data) {
+    return { ok: false, msg: resp.msg || '拉取失败', items: [], total: 0 };
+  }
+  const data = resp.data as { items?: StoreItem[]; count?: number };
+  return {
+    ok: true,
+    msg: '',
+    items: Array.isArray(data.items) ? data.items : [],
+    total: Number(data.count ?? 0),
+  };
+}

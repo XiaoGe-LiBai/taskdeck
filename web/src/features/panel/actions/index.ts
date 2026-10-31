@@ -105,9 +105,10 @@ export {
 export type { VipLevelBenefit } from './users';
 
 export {
+  fetchStoresAction,
   runAdminXiaocanDailyAction,
   runMyXiaocanDailyAction,
   runXiaocanDailyAction,
 } from './xiaocan';
 
-export type { XcDailyResult, XcDailyStep } from './xiaocan';
+export type { StoreItem, StoresResult, XcDailyResult, XcDailyStep } from './xiaocan';

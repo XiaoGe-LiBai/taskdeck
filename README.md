@@ -167,6 +167,8 @@ GET /api/xiaocan/accounts/<id>/stores/explore?lat=&lon=&city_code=
 
 三种接口的列表字段名各不相同（`feed_items` / `promotion_list` / `list`），后端统一补一个 `items` 数组给前端。`limit` 上限 20；定位参数缺失或越界会在本地直接 400，不发无效请求。
 
+面板入口：侧栏「业务 → 附近霸王餐」(`/dashboard/stores`)，可选账号、填经纬度/城市码，在「附近外卖 / 搜索店铺 / 到店团购」间切换并翻页。定位只随请求传递，不落库。
+
 ## 本地开发与验收
 
 ```bash
