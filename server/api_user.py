@@ -12,6 +12,7 @@ import core
 import runner_dispatch
 import vip
 import meituan_runner
+import time_service
 import xiaocan_actions
 import xiaocan_extras
 import xiaocan_stats
@@ -1210,9 +1211,12 @@ def xiaocan_scheduler_api():
 @bp.get("/xiaocan/time")
 @core.require_login
 def xiaocan_time_api():
-    """服务器时间（该项目未接 NTP 授时，此处只回本机时钟，避免假装已校准）。"""
-    return core.ok({"iso": core.iso(), "epoch": int(core.now_dt().timestamp()),
-                    "ntp_synced": False})
+    """授时状态：SNTP 校准后的时间与偏差；UDP 123 不通时自动降级 HTTP 授时。
+
+    `?force=1` 绕过 120 秒缓存强制重新校准（比如抢单前手动校一次）。
+    """
+    force = request.args.get("force") in ("1", "true", "yes")
+    return core.ok(time_service.status(force=force))
 
 
 def _store_args() -> dict:

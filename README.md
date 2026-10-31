@@ -182,6 +182,17 @@ DELETE /api/admin/xiaocan/grab-jobs/<job_id>      取消
 - `at` 传时间戳或 ISO 时间即预约；不传立即执行。到点前 0.5 秒内把轮询间隔压到 5ms。
 - 15 位以上的美团赏金活动（`poi_event_id`）需要额外参数，当前**显式拒绝**并说明原因，不会发出注定失败的请求。
 
+### 授时（NTP）
+
+抢单是秒级窗口，本机时钟漂移会直接导致空枪，所以加了授时层（`server/time_service.py`）：
+
+- 优先 SNTP（RFC 5905）对 `ntp.aliyun.com` / `cn.pool.ntp.org` / `time.cloudflare.com` 校时，算 offset 与往返延迟；
+- **UDP 123 被墙时自动降级**到读 HTTP `Date` 头（用往返中点抵消一半延迟）；
+- 结果缓存 120 秒，`?force=1` 可强制重校；
+- 接口 `GET /api/xiaocan/time` 返回 `synced / source / offset_ms / round_trip_ms / server_time / error`，失败不抛异常，只回报原因。
+
+面板「助手看板 → 任务调度中心」会显示 `授时 +35ms · 源 sntp:ntp.aliyun.com · 往返 60ms` 这样的状态。
+
 ### 美团账号
 
 面板「助手看板 → 美团账号」支持：扫码登录（美团 App 扫码 → 手机确认 → 自动存凭证）、手工粘贴凭证、绑定到小蚕账号、领取福利社券。

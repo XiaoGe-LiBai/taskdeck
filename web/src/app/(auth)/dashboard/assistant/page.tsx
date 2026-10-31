@@ -34,6 +34,15 @@ type ChartData = {
   };
 };
 
+type TimeStatus = {
+  synced: boolean;
+  source: string;
+  offset_ms: number;
+  round_trip_ms: number;
+  server_time: string;
+  error: string;
+};
+
 type Scheduler = {
   grab_jobs: Array<{
     id: string;
@@ -81,6 +90,7 @@ export default async function AssistantPage() {
   ]);
   const catalog = (await panelGet<{ actions: XcAction[] }>('/xiaocan/actions'))?.actions ?? [];
   const meituan = await panelGet<{ accounts: MeituanAccount[]; runtime_ready: boolean }>('/xiaocan/meituan/accounts');
+  const clock = await panelGet<TimeStatus>('/xiaocan/time');
 
   const trend = chart?.trend ?? [];
   const peak = Math.max(1, ...trend.map(point => point.rebate));
@@ -200,13 +210,24 @@ export default async function AssistantPage() {
           description="抢单任务存在进程内，重启后清空；等级刷新由后台每日执行"
         >
           <div className="
-            mb-3 flex items-center gap-2 text-xs text-muted-foreground
+            mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground
           "
           >
             <Tag tone={scheduler?.level_refresh ? 'success' : 'gray'}>
               {scheduler?.level_refresh ? '等级刷新 已开启' : '等级刷新 已关闭'}
             </Tag>
             <span>{`当前抢单任务 ${scheduler?.grab_jobs.length ?? 0} 个`}</span>
+            <Tag tone={clock?.synced ? 'success' : 'warning'}>
+              {clock?.synced
+                ? `授时 ${clock.offset_ms > 0 ? '+' : ''}${clock.offset_ms.toFixed(0)}ms`
+                : '授时未校准'}
+            </Tag>
+            {clock?.synced && (
+              <span>{`源 ${clock.source} · 往返 ${clock.round_trip_ms.toFixed(0)}ms`}</span>
+            )}
+            {!clock?.synced && clock?.error
+              ? <span className="text-destructive">{clock.error.slice(0, 60)}</span>
+              : null}
           </div>
           {scheduler?.grab_jobs.length
             ? (
