@@ -131,5 +131,32 @@ class SessionTests(unittest.TestCase):
             mt.session_status("nope")
 
 
+class ExtractCompatTests(unittest.TestCase):
+    def test_extract_works_without_filter_kwarg(self) -> None:
+        """Python 3.11 的 extractall 没有 filter 参数，必须能回退。"""
+        import tarfile as tf_mod
+        calls = []
+
+        class FakeTar:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def extractall(self, path, filter=None):
+                calls.append(filter)
+                if filter is not None:
+                    raise TypeError("unexpected keyword argument 'filter'")
+
+        with tempfile.TemporaryDirectory() as directory:
+            tgz = os.path.join(directory, "mtuser-pt-passport-0.0.0.tgz")
+            open(tgz, "wb").close()
+            with mock.patch.object(mt, "ASSETS_DIR", directory), \
+                 mock.patch.object(tf_mod, "open", return_value=FakeTar()):
+                self.assertTrue(mt.ensure_assets())
+        self.assertEqual(calls, ["data", None], "先带 filter，失败后回退")
+
+
 if __name__ == "__main__":
     unittest.main()

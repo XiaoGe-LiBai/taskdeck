@@ -42,20 +42,30 @@ def auth_dir() -> str:
 
 def ensure_assets() -> bool:
     """离线解压 pt-passport 并补 .bin 软链；缺文件返回 False（不抛异常）。"""
-    target = os.path.join(ASSETS_DIR, "node_modules", "@mtuser", "pt-passport", "package")
+    # tgz 内部顶层就是 package/，所以解压到包的上一级，避免出现 package/package
+    root = os.path.join(ASSETS_DIR, "node_modules", "@mtuser", "pt-passport")
+    target = os.path.join(root, "package")
     if not os.path.exists(os.path.join(target, "dist", "index.js")):
         tgz = [f for f in os.listdir(ASSETS_DIR) if f.startswith("mtuser-pt-passport-")] if os.path.isdir(ASSETS_DIR) else []
         if not tgz:
             return False
-        os.makedirs(target, exist_ok=True)
+        os.makedirs(root, exist_ok=True)
         with tarfile.open(os.path.join(ASSETS_DIR, tgz[0])) as tf:
-            tf.extractall(target, filter="data")
+            # filter='data' 是 Python 3.12 才有的参数，3.11 要回退
+            try:
+                tf.extractall(root, filter="data")
+            except TypeError:
+                tf.extractall(root)
     bin_dir = os.path.join(ASSETS_DIR, "node_modules", ".bin")
     os.makedirs(bin_dir, exist_ok=True)
     link = os.path.join(bin_dir, "pt-passport")
-    if not os.path.exists(link):
+    if not os.path.lexists(link):
         os.symlink("../@mtuser/pt-passport/package/dist/index.js", link)
-        os.chmod(link, 0o755)
+        try:
+            os.chmod(link, 0o755)
+        except OSError:
+            # 目标还没解压出来时软链是悬空的，chmod 会失败；解压后自然可用
+            pass
     return True
 
 
