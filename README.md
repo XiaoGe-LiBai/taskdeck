@@ -127,6 +127,30 @@ SMTP 在「系统设置 → 邮件服务」配置；未配置或投递失败时�
 
 先把配置保存，再点「发送测试」——测试发的是库里已保存的配置，避免「测的是旧值、测通了线上却没生效」。
 
+## 小蚕动作（签到 / 任务）
+
+复用 `server/xiaocan_bridge.py` 已有的网关签名与主备容灾，只补业务方法，不重写协议层（`server/xiaocan_actions.py`）：
+
+| 动作 | 微服务 / 方法 | 说明 |
+|---|---|---|
+| 会员签到状态 | `SilkwormVip.VipRightsService.UserSignInDays` | 只读，连续天数 + 今日状态 |
+| 元宝签到 | `ActivityTask.ActivityTaskMobileService.SignIn` | 写操作 |
+| 会员签到抽奖 | `SilkwormVip.VipRightsService.SignInLottery` | 写操作，需当天已签到 |
+| 元宝任务总览 | `ActivityTask.ActivityTaskMobileService.UserTaskV2` | 只读 |
+| 营销任务 | `SilkwormMarketing.SilkwormMobileMarketingService.CompleteTaskEvent` | `task_type`：3=饿了么、4=美团、6=社群 |
+
+活动类接口用 `app_id=10`（与登录用的 25 不是同一套）；账号带 `city_code` 时附带 `x-City` 头。
+
+管理端接口：
+
+```
+GET  /api/admin/xiaocan/accounts/<id>/daily-status   查签到状态
+POST /api/admin/xiaocan/accounts/<id>/daily          元宝签到 → 会员抽奖 → 任务总览
+POST /api/admin/xiaocan/accounts/<id>/task-event     {"task_type": 4, "promotion_order_id": 123}
+```
+
+`daily` 逐条返回 `{step, ok, skipped, error}`：单步失败不中断后续步骤；上游提示「已签到 / 已领取」时标记 `skipped` 而不是失败。
+
 ## 本地开发与验收
 
 ```bash

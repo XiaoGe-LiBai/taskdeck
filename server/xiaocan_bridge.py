@@ -688,11 +688,15 @@ def xiaocan_rpc(
     silk_id: str | int = "0",
     token: str = "",
     app_id: int = XC_APP_ID,
+    city_code: int | None = None,
 ) -> dict:
     """调用小蚕网关 RPC，返回完整响应体（业务错误抛 RuntimeError）。
 
     server 形如 'Silkworm'，method 形如 'SilkwormService.GetClientUserInfo'；
     请求体就是业务参数本身，方法名靠 methodname 头传递。
+
+    city_code 非空时附带 x-City 头：活动/店铺类接口按城市返回数据，
+    登录与用户信息接口不需要它（传 None 就保持原样，不改变现有调用）。
     """
     body = dict(payload or {})
     body.setdefault("app_id", app_id)
@@ -722,6 +726,8 @@ def xiaocan_rpc(
             "x-nami": x_nami,
             "x-ashe": x_ashe,
         }
+        if city_code:
+            headers["x-City"] = str(int(city_code))
         try:
             resp = requests.post(url, headers=headers, data=data, timeout=25)
         except Exception as exc:

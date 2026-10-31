@@ -15,6 +15,7 @@ import core
 import mail
 import notify
 import vip
+import xiaocan_actions
 import xiaocan_bridge as xc
 import xiaocan_tasks
 
@@ -1567,5 +1568,64 @@ def reap_zombie_tasks():
     import runner_dispatch
     res = runner_dispatch.reap_zombie_tasks(timeout_minutes=timeout_mins)
     return core.ok(res)
+
+
+# ---------------------------------------------------------------- 小蚕账号动作（签到 / 任务）
+
+def _xiaocan_account_or_none(aid: int):
+    row = core.query_one("SELECT * FROM accounts WHERE id=?", (aid,))
+    return dict(row) if row else None
+
+
+@bp.get("/xiaocan/accounts/<int:aid>/daily-status")
+@core.require_admin
+def xiaocan_daily_status(aid: int):
+    """查会员签到状态（连续天数、今日是否已签），不发写请求。"""
+    account = _xiaocan_account_or_none(aid)
+    if not account:
+        return core.fail("账号不存在", 404)
+    try:
+        data = xiaocan_actions.sign_in_status(account)
+    except Exception as exc:
+        return core.fail(f"查询签到状态失败：{exc}")
+    return core.ok({"account_id": aid, "sign_in": data})
+
+
+@bp.post("/xiaocan/accounts/<int:aid>/daily")
+@core.require_admin
+def xiaocan_run_daily(aid: int):
+    """执行一次日常：元宝签到 → 会员签到抽奖 → 拉任务总览。
+
+    逐条返回结果；单步失败或「已经做过」不中断其它步骤。
+    """
+    account = _xiaocan_account_or_none(aid)
+    if not account:
+        return core.fail("账号不存在", 404)
+    result = xiaocan_actions.run_daily(account)
+    core.log_admin_action("xiaocan_daily", None, {"account_id": aid, "failed": result["failed"]})
+    return core.ok(result)
+
+
+@bp.post("/xiaocan/accounts/<int:aid>/task-event")
+@core.require_admin
+def xiaocan_task_event(aid: int):
+    """完成营销任务领红包：task_type 3=饿了么延时，4=美团延时，6=社群。"""
+    account = _xiaocan_account_or_none(aid)
+    if not account:
+        return core.fail("账号不存在", 404)
+    body = request.get_json(silent=True) or {}
+    try:
+        task_type = int(body.get("task_type", 0))
+    except (TypeError, ValueError):
+        return core.fail("task_type 必须是整数")
+    if task_type not in (3, 4, 6):
+        return core.fail("task_type 只支持 3（饿了么）/ 4（美团）/ 6（社群）")
+    order_id = body.get("promotion_order_id")
+    try:
+        data = xiaocan_actions.complete_task_event(
+            account, task_type, int(order_id) if order_id not in (None, "") else None)
+    except Exception as exc:
+        return core.fail(f"完成营销任务失败：{exc}")
+    return core.ok({"account_id": aid, "task_type": task_type, "data": data})
 
 
