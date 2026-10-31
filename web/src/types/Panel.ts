@@ -253,6 +253,16 @@ export type PanelFailure = {
   reason: string;
 };
 
+/** 通知渠道元数据：由后端 notify.CHANNELS 下发，前端不硬编码渠道清单 */
+export type NotifyChannelSpec = {
+  key: string;
+  label: string;
+  fields: string[];
+  secret_fields: string[];
+  hint: string;
+  configured: boolean;
+};
+
 export type PanelSettings = {
   site_name: string;
   /** 站点对外地址（如 https://panel.example.com）。邮件里的 logo 与链接要用绝对地址 */
@@ -279,6 +289,8 @@ export type PanelSettings = {
   level_refresh_enabled: string;
   /** 自动刷新的时刻（0-23） */
   level_refresh_hour: string;
+  /** 通知渠道清单（后端下发） */
+  notify_channels?: NotifyChannelSpec[];
   /** 邮件服务：SMTP 主机；留空 = 关闭发信（验证码只写后端 data/mail.log） */
   smtp_host: string;
   smtp_port: string;

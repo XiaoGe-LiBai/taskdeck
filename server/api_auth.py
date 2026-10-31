@@ -8,6 +8,7 @@ from flask import Blueprint, request
 
 import core
 import mail
+import notify as notify_mod
 
 bp = Blueprint("auth", __name__)
 
@@ -220,6 +221,11 @@ def register():
     user = core.query_one("SELECT * FROM users WHERE id=?", (uid,))
     tv = dict(user).get("token_version") or 1
     token, _ttl = core.make_token(uid, "user", tv)
+    # 新用户注册是管理员最关心的事件：配置了通知渠道就后台推一条，不阻塞注册响应
+    notify_mod.notify_async(
+        "新用户注册",
+        f"邮箱：{email}\n昵称：{nickname[:20]}\nIP：{core.current_ip()}\n时间：{now}",
+    )
     return core.ok({"access_token": token, "user": core.user_public(dict(user))})
 
 

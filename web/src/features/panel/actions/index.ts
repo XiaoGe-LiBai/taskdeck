@@ -76,6 +76,7 @@ export {
   deleteSiteLogoAction,
   saveSettingsAction,
   testMailAction,
+  testNotifyChannelAction,
   toggleSiteLogoAction,
   uploadSiteLogoAction,
 } from './settings';

@@ -5,7 +5,7 @@ import { useActionState, useEffect, useState } from 'react';
 import { Input, Select } from '@/components/ui/input';
 import { Card, Field } from '@/features/panel/Ui';
 import { cn } from '@/utils/Helpers';
-import { saveSettingsAction, testMailAction } from './actions';
+import { saveSettingsAction, testMailAction, testNotifyChannelAction } from './actions';
 import { SiteLogoSettings } from './SiteLogoSettings';
 
 /**
@@ -25,9 +25,18 @@ const GROUPS = [
   { id: 'checkin', label: '签到与积分', icon: '📅' },
   { id: 'level', label: '等级刷新', icon: '📈' },
   { id: 'mail', label: '邮件服务', icon: '📧' },
+  { id: 'notify', label: '通知渠道', icon: '🔔' },
 ] as const;
 
 type GroupId = (typeof GROUPS)[number]['id'];
+
+/** 通知渠道字段的中文名（后端只下发字段名，文案放前端） */
+const NOTIFY_FIELD_LABEL: Record<string, string> = {
+  url: 'Webhook 地址 / Key',
+  secret: '加签密钥',
+  token: 'Token',
+  chat_id: 'Chat ID',
+};
 
 /** 分组卡片：统一「锚点 + 标题 + 说明」外壳，避免四处重复写 section 结构 */
 const GroupSection = (props: {
@@ -57,6 +66,9 @@ export const SettingsForm = (props: {
     '',
   );
   const [active, setActive] = useState<GroupId>('basic');
+  // 通知渠道的测试结果按渠道存：每张卡各自展示，互不覆盖
+  const [notifyResults, setNotifyResults] = useState<Record<string, string>>({});
+  const [notifyPending, setNotifyPending] = useState('');
 
   const saved = state.startsWith('ok:');
   const error = state.startsWith('error:') ? state.slice(6) : '';
@@ -484,6 +496,110 @@ export const SettingsForm = (props: {
                 {mailError}
               </div>
             )}
+          </div>
+        </GroupSection>
+
+        <GroupSection
+          id="notify"
+          title="通知渠道"
+          description="新用户注册等事件会推送到这里配置的群机器人；不配则完全不推送"
+        >
+          <div className="
+            rounded-md border bg-muted/40 px-3 py-2 text-xs
+            text-muted-foreground
+          "
+          >
+            渠道清单来自后端；
+            <strong className="text-foreground">先保存再测试</strong>
+            ，测试按钮发的是库里已保存的配置。密钥类字段留空表示不修改。
+          </div>
+
+          <div className="flex flex-col gap-4">
+            {(props.settings?.notify_channels ?? []).map((channel) => {
+              const values = (props.settings ?? {}) as Record<string, string | undefined>;
+              const message = notifyResults[channel.key] ?? '';
+              const ok = message.startsWith('ok:');
+              return (
+                <div key={channel.key} className="rounded-md border p-4">
+                  <div className="
+                    flex flex-wrap items-start justify-between gap-2
+                  "
+                  >
+                    <div>
+                      <div className="text-sm font-medium text-foreground">
+                        {channel.label}
+                        {channel.configured && (
+                          <span className="
+                            ml-2 text-xs font-normal text-emerald-600
+                          "
+                          >
+                            已配置
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">{channel.hint}</div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!channel.configured || notifyPending === channel.key}
+                      onClick={async () => {
+                        setNotifyPending(channel.key);
+                        const result = await testNotifyChannelAction(channel.key);
+                        setNotifyResults(prev => ({ ...prev, [channel.key]: result }));
+                        setNotifyPending('');
+                      }}
+                      className="
+                        shrink-0 rounded-md border px-3 py-1.5 text-xs
+                        font-medium
+                        hover:bg-muted
+                        disabled:opacity-50
+                      "
+                    >
+                      {notifyPending === channel.key ? '发送中…' : '发送测试'}
+                    </button>
+                  </div>
+
+                  <div className="
+                    mt-3 grid gap-3
+                    sm:grid-cols-2
+                  "
+                  >
+                    {channel.fields.map((field) => {
+                      const secret = channel.secret_fields.includes(field);
+                      const set = values[`notify_${channel.key}_${field}_set`] === 'true';
+                      return (
+                        <Field
+                          key={field}
+                          label={NOTIFY_FIELD_LABEL[field] ?? field}
+                          hint={secret && set ? '已设置，留空表示不修改' : undefined}
+                        >
+                          <Input
+                            name={`notify_${channel.key}_${field}`}
+                            type={secret ? 'password' : 'text'}
+                            autoComplete="off"
+                            placeholder={secret && set ? '已设置（留空不改）' : ''}
+                            defaultValue={secret ? '' : (values[`notify_${channel.key}_${field}`] ?? '')}
+                          />
+                        </Field>
+                      );
+                    })}
+                  </div>
+
+                  {message && (
+                    <div
+                      className={cn(
+                        'mt-3 rounded-md px-3 py-2 text-xs break-all',
+                        ok
+                          ? 'bg-emerald-500/10 text-emerald-600'
+                          : 'bg-destructive/10 text-destructive',
+                      )}
+                    >
+                      {message.replace(/^(ok|error):/, '')}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </GroupSection>
       </div>

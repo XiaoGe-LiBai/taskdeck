@@ -13,6 +13,7 @@ from flask import Blueprint, request
 
 import core
 import mail
+import notify
 import vip
 import xiaocan_bridge as xc
 import xiaocan_tasks
@@ -1422,6 +1423,20 @@ def settings_get():
         data["site_logo_url"] = f"/site-icon?v={int(os.path.getmtime(core.SITE_LOGO_PATH))}"
     else:
         data["site_logo_url"] = ""
+    # 通知渠道：密钥类字段（钉钉加签 / Telegram token / Webhook token）不回传明文，
+    # 只给 `_set` 标记，表单留空即表示「这栏没动」——和 smtp_password 同一套约定。
+    for channel, spec in notify.CHANNELS.items():
+        for field in spec["secret_fields"]:
+            key = notify.setting_key(channel, field)
+            data[f"{key}_set"] = "true" if str(data.get(key) or "").strip() else "false"
+            data[key] = ""
+    # 渠道清单以后端为准，前端不再硬编码一份
+    data["notify_channels"] = [
+        {"key": channel, "label": spec["label"], "fields": list(spec["fields"]),
+         "secret_fields": list(spec["secret_fields"]), "hint": spec["hint"],
+         "configured": notify.configured(channel)}
+        for channel, spec in notify.CHANNELS.items()
+    ]
     return core.ok(data)
 
 
@@ -1453,12 +1468,20 @@ def settings_put():
         "smtp_sender",
         "smtp_from_name",
     }
+    # 通知渠道的键由 notify.CHANNELS 生成，避免两处维护
+    secret_keys = set()
+    for channel, spec in notify.CHANNELS.items():
+        for field in spec["fields"]:
+            key = notify.setting_key(channel, field)
+            allowed.add(key)
+            if field in spec["secret_fields"]:
+                secret_keys.add(key)
     for key in allowed:
         if key not in body:
             continue
         value = body[key]
-        # smtp_password 留空 = 不改（GET 不回显明文，空值只能理解为「这栏没动」）
-        if key == "smtp_password" and not str(value or "").strip():
+        # 口令/密钥留空 = 不改：GET 不回显明文，空值只能理解为「这栏没动」
+        if key in secret_keys | {"smtp_password"} and not str(value or "").strip():
             continue
         core.set_setting(key, value)
     return core.ok({})
@@ -1487,6 +1510,21 @@ def settings_mail_test():
             "error": "未配置 SMTP（主机 / 账号 / 授权码至少缺一项），邮件只写进了 data/mail.log",
         })
     return core.ok({"sent": False, "to": to, "dry_run": False, "error": result["error"]})
+
+
+@bp.post("/settings/notify-test")
+@core.require_admin
+def settings_notify_test():
+    """给指定渠道发一条自检消息，把真实报错原样回给管理员。"""
+    body = request.get_json(silent=True) or {}
+    channel = (body.get("channel") or "").strip()
+    if channel not in notify.CHANNELS:
+        return core.fail("未知通知渠道")
+    if not notify.configured(channel):
+        return core.fail("该渠道还没填必填项")
+    result = notify.send(channel, "【自检】通知渠道连通测试",
+                         f"如果你看到这条消息，说明 {notify.CHANNELS[channel]['label']} 配置正确。")
+    return core.ok({"channel": channel, "sent": result["sent"], "error": result["error"]})
 
 
 # ------------------------------------------------------------ 小蚕任务 / 日志

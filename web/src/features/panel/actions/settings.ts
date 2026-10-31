@@ -43,10 +43,33 @@ export async function saveSettingsAction(
     payload.smtp_password = smtpPassword;
   }
 
+  // 通知渠道的键由后端按 notify_<渠道>_<字段> 生成，这里按前缀转发，
+  // 不维护第二份渠道清单；密钥类字段留空同样表示「不改」。
+  for (const [key, value] of formData.entries()) {
+    if (key.startsWith('notify_') && typeof value === 'string') {
+      (payload as Record<string, string>)[key] = value;
+    }
+  }
+
   const result = await panelSend<Record<string, unknown>>('PUT', '/admin/settings', payload);
   revalidatePath('/dashboard/settings');
 
   return result.ok ? 'ok:设置已保存' : `error:${result.msg}`;
+}
+
+/** 给单个通知渠道发一条自检消息；测的是库里已保存的配置（先保存再测）。 */
+export async function testNotifyChannelAction(channel: string): Promise<string> {
+  const result = await panelSend<{ channel: string; sent: boolean; error?: string }>(
+    'POST',
+    '/admin/settings/notify-test',
+    { channel },
+  );
+  if (!result.ok || !result.data) {
+    return `error:${result.msg || '测试发送失败'}`;
+  }
+  return result.data.sent
+    ? 'ok:测试消息已发出，去看对应群/客户端'
+    : `error:${result.data.error || '发送失败'}`;
 }
 
 /**

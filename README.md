@@ -104,6 +104,29 @@ SMTP 在「系统设置 → 邮件服务」配置；未配置或投递失败时�
 
 站点名称、图标开关和图片随数据库/上传目录持久化；邮件验证码、通知和测试邮件共用模板。注册是否强制验证邮箱由 `PANEL_REGISTER_REQUIRE_CODE` 配置；开启前应先确认 SMTP 测试成功。
 
+## 通知渠道（IM 机器人）
+
+在「系统设置 → 通知渠道」配置，**不依赖邮件服务**，独立可用。已支持 7 个渠道：
+
+| 渠道 | 必填 | 说明 |
+|---|---|---|
+| 企业微信机器人 | Webhook | 群机器人地址 |
+| 钉钉机器人 | Webhook（+加签密钥） | 开了「加签」时填 secret，服务端自动加 `timestamp`/`sign` |
+| 飞书机器人 | Webhook | 自定义机器人地址 |
+| Bark（iOS） | 服务地址 + Key | 自建服务同样可用 |
+| Server酱 | SendKey | 填 SCT 开头的 key 或完整 `.send` 地址 |
+| Telegram | Bot Token + Chat ID | 直连 `api.telegram.org`，需要服务器可达 |
+| 自定义 Webhook | URL（+Bearer Token） | POST JSON：`{event,title,content,time}` |
+
+实现要点（`server/notify.py`）：
+
+- 配置存 `settings` 表 `notify_<渠道>_<字段>`，必填项不齐即视为未启用，**不影响其它渠道**；
+- 钉钉 secret、Telegram token、Webhook token **不回传前端**，只给「已设置」标记，留空表示不修改；
+- 发送失败只写 `data/notify.log`，绝不让机器人故障拖垮业务；业务事件走后台线程，不阻塞请求；
+- 已接入事件：新用户注册。后续事件（提现、抢兑、runner 失败等）在对应位置调用 `notify.notify_async(标题, 正文)` 即可。
+
+先把配置保存，再点「发送测试」——测试发的是库里已保存的配置，避免「测的是旧值、测通了线上却没生效」。
+
 ## 本地开发与验收
 
 ```bash
