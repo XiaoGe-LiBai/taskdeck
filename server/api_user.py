@@ -974,6 +974,62 @@ def delete_account(account_id: int):
     return core.ok({})
 
 
+def _store_args() -> dict:
+    """店铺类接口的公共查询参数（定位来自请求，不落库）。"""
+    args = request.args
+    return {
+        "lat": args.get("lat"),
+        "lon": args.get("lon"),
+        "offset": args.get("offset", 0),
+        "limit": args.get("limit", 20),
+        "city_code": args.get("city_code"),
+    }
+
+
+def _store_reply(fn) -> object:
+    try:
+        return core.ok(fn())
+    except ValueError as exc:
+        return core.fail(str(exc))
+    except Exception as exc:
+        return core.fail(f"拉取店铺失败：{exc}")
+
+
+@bp.get("/xiaocan/accounts/<int:account_id>/stores/feed")
+@core.require_login
+def store_feed_api(account_id: int):
+    """附近外卖霸王餐店铺（推荐流；主源空则自动回落备源）。"""
+    account = _own_account(account_id)
+    if not account:
+        return core.fail("账号不存在")
+    args = _store_args()
+    return _store_reply(lambda: xiaocan_actions.feed_stores(
+        account, sort=int(request.args.get("sort", 0) or 0), **args))
+
+
+@bp.get("/xiaocan/accounts/<int:account_id>/stores/search")
+@core.require_login
+def store_search_api(account_id: int):
+    """按关键词搜店。"""
+    account = _own_account(account_id)
+    if not account:
+        return core.fail("账号不存在")
+    args = _store_args()
+    return _store_reply(lambda: xiaocan_actions.search_stores(
+        account, request.args.get("q", ""), **args))
+
+
+@bp.get("/xiaocan/accounts/<int:account_id>/stores/explore")
+@core.require_login
+def store_explore_api(account_id: int):
+    """到店/探店团购霸王餐清单。"""
+    account = _own_account(account_id)
+    if not account:
+        return core.fail("账号不存在")
+    args = _store_args()
+    return _store_reply(lambda: xiaocan_actions.explore_stores(account, **args))
+
+
 @bp.post("/xiaocan/accounts/<int:account_id>/daily")
 @core.require_login
 def run_own_daily_api(account_id: int):

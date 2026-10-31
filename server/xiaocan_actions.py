@@ -34,7 +34,15 @@ def _ctx(account: dict) -> dict[str, Any]:
     return ctx
 
 
-def _call(account: dict, server: str, method: str, body: dict[str, Any]) -> dict:
+def _call(
+    account: dict,
+    server: str,
+    method: str,
+    body: dict[str, Any],
+    *,
+    city_code: int | None = None,
+) -> dict:
+    """city_code 显式传入时优先（店铺类接口按请求里的定位走），否则用账号自带的。"""
     ctx = _ctx(account)
     payload = {"silk_id": int(ctx["silk_id"]), **body}
     return xc.xiaocan_rpc(
@@ -45,7 +53,7 @@ def _call(account: dict, server: str, method: str, body: dict[str, Any]) -> dict
         silk_id=ctx["silk_id"],
         token=ctx["token"],
         app_id=XC_ACTIVITY_APP_ID,
-        city_code=ctx.get("city_code"),
+        city_code=city_code if city_code is not None else ctx.get("city_code"),
     )
 
 
@@ -110,3 +118,162 @@ def run_daily(account: dict) -> dict:
         "failed": len(failed),
         "steps": steps,
     }
+
+# ---------------------------------------------------------------- 店铺检索
+
+DEFAULT_CITY_CODE = 440303
+MAX_PAGE_SIZE = 20
+
+
+def _geo(lat: float | str | None, lon: float | str | None, city_code: int | str | None) -> tuple[float, float, int]:
+    """定位参数校验：宁可在这里报错，也不要发一个经纬度是 0 的请求出去。"""
+    try:
+        flat, flon = float(lat), float(lon)
+    except (TypeError, ValueError):
+        raise ValueError("需要有效的 lat / lon（先在小蚕 App 里定位到目标城市）") from None
+    if not (-90 <= flat <= 90 and -180 <= flon <= 180):
+        raise ValueError("lat / lon 超出合法范围")
+    try:
+        city = int(city_code) if city_code not in (None, "") else DEFAULT_CITY_CODE
+    except (TypeError, ValueError):
+        raise ValueError("city_code 必须是整数") from None
+    return flat, flon, city
+
+
+def _page(offset: int | str | None, limit: int | str | None) -> tuple[int, int]:
+    try:
+        off = max(0, int(offset or 0))
+        lim = int(limit or MAX_PAGE_SIZE)
+    except (TypeError, ValueError):
+        raise ValueError("offset / limit 必须是整数") from None
+    return off, max(1, min(MAX_PAGE_SIZE, lim))
+
+
+def _with_items(res: dict, *keys: str) -> dict:
+    """上游不同接口把列表放在不同键里（feed_items / promotion_list / list），
+    统一补一个 items 给前端，省得每个页面各写一套兜底。"""
+    if isinstance(res, dict) and "items" not in res:
+        for key in keys:
+            value = res.get(key)
+            if isinstance(value, list):
+                res["items"] = value
+                break
+        else:
+            res["items"] = []
+    return res
+
+
+def feed_stores(
+    account: dict,
+    *,
+    lat: float | str | None,
+    lon: float | str | None,
+    offset: int | str | None = 0,
+    limit: int | str | None = MAX_PAGE_SIZE,
+    sort: int = 0,
+    city_code: int | str | None = None,
+) -> dict:
+    """附近外卖霸王餐店铺：先走主页推荐源，空结果或报错再回落到聚合推荐源。"""
+    flat, flon, city = _geo(lat, lon, city_code)
+    off, lim = _page(offset, limit)
+
+    primary_body = {
+        "lon": flon,
+        "lat": flat,
+        "number": lim,
+        "offset": off,
+        "sort": int(sort or 0),
+        "scene": 1,
+        "is_show_mt": True,
+        "app_id": XC_ACTIVITY_APP_ID,
+    }
+    try:
+        res = _call(account, "SilkwormFusion", "FusionService.GetFeedPromotions",
+                    primary_body, city_code=city)
+        if res.get("feed_items"):
+            return _with_items(res, "feed_items", "promotion_list")
+    except Exception:
+        # 主源不可用就换备源，调用方只需要一份能看的列表
+        pass
+
+    fallback_body = {
+        "city_code": city,
+        "longitude": flon,
+        "latitude": flat,
+        "number": lim,
+        "offset": off,
+        "promotion_sort": 1 if int(sort or 0) == 1 else 4,
+        "promotion_category": 0,
+        "promotion_filter": 0,
+        "store_category": 0,
+        "store_platform": 0,
+        "store_type": 0,
+        "app_id": XC_ACTIVITY_APP_ID,
+    }
+    fallback = _call(account, "SilkwormRec", "RecService.GetStorePromotionList",
+                     fallback_body, city_code=city)
+    return _with_items(fallback, "promotion_list", "store_list")
+
+
+def search_stores(
+    account: dict,
+    keyword: str,
+    *,
+    lat: float | str | None,
+    lon: float | str | None,
+    offset: int | str | None = 0,
+    limit: int | str | None = MAX_PAGE_SIZE,
+    city_code: int | str | None = None,
+) -> dict:
+    """按关键词搜索店铺。"""
+    name = (keyword or "").strip()
+    if not name:
+        raise ValueError("请输入店铺关键词")
+    flat, flon, city = _geo(lat, lon, city_code)
+    off, lim = _page(offset, limit)
+    body = {
+        "lat": flat,
+        "lon": flon,
+        "keyword": name,
+        "offset": off,
+        "number": lim,
+        "app_id": XC_ACTIVITY_APP_ID,
+    }
+    res = _call(account, "SilkwormFusion", "FusionService.SearchPromotions", body, city_code=city)
+    # 上游在不同版本里把列表放在 promotions / promotion_list，统一成后者给前端
+    if "promotions" in res and "promotion_list" not in res:
+        res["promotion_list"] = res["promotions"]
+    return _with_items(res, "promotion_list", "promotions")
+
+
+def explore_stores(
+    account: dict,
+    *,
+    lat: float | str | None,
+    lon: float | str | None,
+    offset: int | str | None = 0,
+    limit: int | str | None = MAX_PAGE_SIZE,
+    city_code: int | str | None = None,
+) -> dict:
+    """到店/探店团购霸王餐清单（分页用 page_num/page_size，不是 offset）。"""
+    flat, flon, city = _geo(lat, lon, city_code)
+    off, lim = _page(offset, limit)
+    body = {
+        "loc": {"lat": flat, "lng": flon},
+        "city_code": city,
+        "dist_item": 30000,
+        "page": {"page_num": off // lim + 1, "page_size": lim},
+        "filter": {
+            "is_brand": False,
+            "is_can_order": True,
+            "is_discount_lt4": False,
+            "is_done_bargain": False,
+            "is_multi": False,
+            "is_single": False,
+            "original_price_get": 0,
+            "store_first_category": 0,
+        },
+        "app_id": XC_ACTIVITY_APP_ID,
+    }
+    res = _call(account, "SilkwormExplore", "ExploreMobile.ListGroupPromotion", body, city_code=city)
+    return _with_items(res, "list", "promotion_list")

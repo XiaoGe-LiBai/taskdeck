@@ -151,6 +151,22 @@ POST /api/admin/xiaocan/accounts/<id>/task-event     {"task_type": 4, "promotion
 
 `daily` 逐条返回 `{step, ok, skipped, error}`：单步失败不中断后续步骤；上游提示「已签到 / 已领取」时标记 `skipped` 而不是失败。
 
+### 店铺检索（只读）
+
+| 动作 | 微服务 / 方法 | 说明 |
+|---|---|---|
+| 附近外卖霸王餐 | `SilkwormFusion.FusionService.GetFeedPromotions` | 主源；空结果或报错自动回落 `SilkwormRec.RecService.GetStorePromotionList` |
+| 关键词搜店 | `SilkwormFusion.FusionService.SearchPromotions` | 需要 `q` |
+| 到店/团购霸王餐 | `SilkwormExplore.ExploreMobile.ListGroupPromotion` | 分页用 `page_num/page_size` |
+
+```
+GET /api/xiaocan/accounts/<id>/stores/feed?lat=&lon=&city_code=&offset=&limit=
+GET /api/xiaocan/accounts/<id>/stores/search?q=&lat=&lon=&city_code=
+GET /api/xiaocan/accounts/<id>/stores/explore?lat=&lon=&city_code=
+```
+
+三种接口的列表字段名各不相同（`feed_items` / `promotion_list` / `list`），后端统一补一个 `items` 数组给前端。`limit` 上限 20；定位参数缺失或越界会在本地直接 400，不发无效请求。
+
 ## 本地开发与验收
 
 ```bash

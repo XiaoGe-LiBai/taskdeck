@@ -121,5 +121,95 @@ class DailyRunTests(unittest.TestCase):
         self.assertEqual((result["failed"], result["skipped"]), (0, 0))
 
 
+class StoreSearchTests(unittest.TestCase):
+    """店铺检索：只校验参数拼装与主备回落，不发真实请求。"""
+
+    def setUp(self) -> None:
+        self.calls: list[dict] = []
+
+        def fake_rpc(server, method, payload=None, **kwargs):
+            self.calls.append({"server": server, "method": method, "payload": payload, **kwargs})
+            if method == "FusionService.GetFeedPromotions":
+                return self.feed_result
+            return {"promotion_list": [{"id": 1}]}
+
+        self.feed_result = {"feed_items": [{"poi": 1}]}
+        patcher = mock.patch.object(xc, "xiaocan_rpc", side_effect=fake_rpc)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_feed_uses_fusion_first(self) -> None:
+        result = actions.feed_stores(ACCOUNT, lat=22.54, lon=114.06, city_code=440305)
+        self.assertEqual(result["items"], [{"poi": 1}], "统一暴露 items 给前端")
+        call = self.calls[0]
+        self.assertEqual(call["server"], "SilkwormFusion")
+        self.assertEqual(call["method"], "FusionService.GetFeedPromotions")
+        self.assertEqual(call["payload"]["lat"], 22.54)
+        self.assertEqual(call["payload"]["lon"], 114.06)
+        self.assertEqual(call["payload"]["number"], 20)
+        self.assertTrue(call["payload"]["is_show_mt"])
+        self.assertEqual(call["city_code"], 440305)
+        self.assertEqual(len(self.calls), 1, "主源有数据就不该再打备源")
+
+    def test_feed_falls_back_when_primary_empty(self) -> None:
+        self.feed_result = {"feed_items": []}
+        actions.feed_stores(ACCOUNT, lat=1, lon=2)
+        self.assertEqual([c["method"] for c in self.calls],
+                         ["FusionService.GetFeedPromotions", "RecService.GetStorePromotionList"])
+        fallback = self.calls[-1]["payload"]
+        self.assertEqual(fallback["city_code"], actions.DEFAULT_CITY_CODE)
+        self.assertEqual(fallback["promotion_sort"], 4)
+
+    def test_feed_falls_back_when_primary_raises(self) -> None:
+        self.feed_result = None
+
+        def flaky(server, method, payload=None, **kwargs):
+            self.calls.append({"server": server, "method": method, "payload": payload, **kwargs})
+            if method.startswith("FusionService"):
+                raise RuntimeError("WAF 403")
+            return {"promotion_list": []}
+
+        with mock.patch.object(xc, "xiaocan_rpc", side_effect=flaky):
+            actions.feed_stores(ACCOUNT, lat=1, lon=2)
+        self.assertEqual(self.calls[-1]["server"], "SilkwormRec")
+
+    def test_search_trims_keyword_and_normalises_list(self) -> None:
+        result = actions.search_stores(ACCOUNT, "  瑞幸  ", lat=1, lon=2)
+        call = self.calls[0]
+        self.assertEqual(call["method"], "FusionService.SearchPromotions")
+        self.assertEqual(call["payload"]["keyword"], "瑞幸")
+        self.assertEqual(result["promotion_list"], [{"id": 1}])
+
+    def test_search_rejects_empty_keyword(self) -> None:
+        with self.assertRaises(ValueError):
+            actions.search_stores(ACCOUNT, "   ", lat=1, lon=2)
+        self.assertEqual(self.calls, [])
+
+    def test_explore_uses_page_number(self) -> None:
+        result = actions.explore_stores(ACCOUNT, lat=1, lon=2, offset=40, limit=20)
+        self.assertEqual(result["items"], [{"id": 1}], "explore 的 list 也要归一到 items")
+        body = self.calls[0]["payload"]
+        self.assertEqual(self.calls[0]["method"], "ExploreMobile.ListGroupPromotion")
+        self.assertEqual(body["page"], {"page_num": 3, "page_size": 20})
+        self.assertEqual(body["loc"], {"lat": 1.0, "lng": 2.0})
+        self.assertTrue(body["filter"]["is_can_order"])
+
+    def test_limit_is_clamped(self) -> None:
+        actions.explore_stores(ACCOUNT, lat=1, lon=2, limit=99)
+        self.assertEqual(self.calls[0]["payload"]["page"]["page_size"], actions.MAX_PAGE_SIZE)
+        # 0/空 视为「没传」，走默认值；负数才是非法，被夹到 1
+        actions.explore_stores(ACCOUNT, lat=1, lon=2, limit=0)
+        self.assertEqual(self.calls[-1]["payload"]["page"]["page_size"], actions.MAX_PAGE_SIZE)
+        actions.explore_stores(ACCOUNT, lat=1, lon=2, limit=-5)
+        self.assertEqual(self.calls[-1]["payload"]["page"]["page_size"], 1)
+
+    def test_missing_or_bad_location(self) -> None:
+        for kwargs in ({"lat": None, "lon": 2}, {"lat": 1, "lon": None},
+                       {"lat": "abc", "lon": 2}, {"lat": 91, "lon": 2}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                actions.feed_stores(ACCOUNT, **kwargs)
+        self.assertEqual(self.calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()
