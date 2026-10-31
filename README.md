@@ -192,7 +192,7 @@ DELETE /api/admin/xiaocan/grab-jobs/<job_id>      取消
 - **运行日志**：抢单/日常执行记录，可一键清空
 - **抢单预约表单**：选账号、填活动 ID、可选计划时间与超前券
 
-``` 
+```
 GET    /api/xiaocan/stats        GET /api/xiaocan/chart-data
 GET    /api/xiaocan/scheduler    GET /api/xiaocan/time
 GET    /api/xiaocan/job-logs     DELETE /api/xiaocan/job-logs
