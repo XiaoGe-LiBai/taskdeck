@@ -114,7 +114,8 @@ def main():
         # 在镜像内而非宿主代码上跑测试，确认发布产物具备同样行为。
         docker("run", "--rm", "--entrypoint", "/app/venv/bin/python", "-w", "/app/server", image,
                "-m", "unittest", "-q", "test_installation", "test_notify", "test_xiaocan_actions",
-               "test_xiaocan_waf", "test_xiaocan_grab", "test_xiaocan_stats", timeout=300)
+               "test_xiaocan_waf", "test_xiaocan_grab", "test_xiaocan_stats",
+               "test_xiaocan_extras", timeout=300)
         # 启动前检查镜像文件系统，不能把本机配置、数据库或生成预览带入产物。
         safety = "from pathlib import Path; root=Path('/app'); forbidden=['server/config.json','server/config.local.json','server/data/panel.db','server/data/runtime-secrets.json','web/.env','web/.env.local','web/public/_preview']; assert not any((root/p).exists() for p in forbidden), '镜像包含本地运行文件'"
         docker("run", "--rm", "--entrypoint", "/app/venv/bin/python", image, "-c", safety)

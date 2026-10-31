@@ -17,6 +17,7 @@ import notify
 import vip
 import grab_engine
 import xiaocan_actions
+import xiaocan_extras
 import xiaocan_stats
 import xiaocan_bridge as xc
 import xiaocan_tasks
@@ -1676,6 +1677,28 @@ def xiaocan_grab(aid: int):
         return core.fail(str(exc))
     core.log_admin_action("xiaocan_grab", None, {"account_id": aid, "promotion_id": promotion_id})
     return core.ok(job)
+
+
+@bp.post("/xiaocan/accounts/<int:aid>/call")
+@core.require_admin
+def xiaocan_admin_call(aid: int):
+    """管理员代任意账号执行允许清单内的动作。"""
+    account = _xiaocan_account_or_none(aid)
+    if not account:
+        return core.fail("账号不存在", 404)
+    body = request.get_json(silent=True) or {}
+    action = str(body.get("action") or "").strip()
+    params = body.get("params") or {}
+    if not isinstance(params, dict):
+        return core.fail("params 必须是对象")
+    try:
+        data = xiaocan_extras.run(account, action, params)
+    except ValueError as exc:
+        return core.fail(str(exc))
+    except Exception as exc:
+        return core.fail(f"{action} 执行失败：{exc}")
+    core.log_admin_action("xiaocan_call", None, {"account_id": aid, "action": action})
+    return core.ok(data)
 
 
 @bp.get("/xiaocan/grab-jobs")

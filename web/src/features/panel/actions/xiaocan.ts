@@ -167,3 +167,24 @@ export async function scheduleGrabAction(_prev: string, formData: FormData): Pro
   revalidatePath('/dashboard/assistant');
   return `ok:任务 ${resp.data.id} 已排队，计划 ${resp.data.at}`;
 }
+
+export type XcActionParam = { name: string; required: boolean; default: unknown; type: 'int' | 'str' };
+export type XcAction = { key: string; params: XcActionParam[] };
+
+/** 执行一个允许清单内的小蚕动作。 */
+export async function callXiaocanAction(
+  accountId: number,
+  action: string,
+  params: Record<string, unknown> = {},
+): Promise<{ ok: boolean; msg: string; data?: unknown }> {
+  const resp = await panelSend<Record<string, unknown>>(
+    'POST',
+    `/xiaocan/accounts/${accountId}/call`,
+    { action, params },
+  );
+  if (!resp.ok) {
+    return { ok: false, msg: resp.msg || '执行失败' };
+  }
+  revalidatePath('/dashboard/assistant');
+  return { ok: true, msg: '', data: resp.data };
+}

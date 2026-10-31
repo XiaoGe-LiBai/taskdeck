@@ -1,6 +1,8 @@
+import type { XcAction } from '@/features/panel/actions';
 import { ClearLogsButton } from '@/features/panel/ClearLogsButton';
 import { GrabScheduler } from '@/features/panel/GrabScheduler';
 import { Card, Empty, PageTitle, StatCard, Tag } from '@/features/panel/Ui';
+import { XiaocanToolbox } from '@/features/panel/XiaocanToolbox';
 import { panelGet } from '@/libs/PanelApi';
 
 type Stats = {
@@ -76,6 +78,7 @@ export default async function AssistantPage() {
     panelGet<{ jobs: JobLog[] }>('/xiaocan/job-logs?limit=30'),
     panelGet<Array<{ id: number; nickname: string; account_info: string }>>('/xiaocan/accounts'),
   ]);
+  const catalog = (await panelGet<{ actions: XcAction[] }>('/xiaocan/actions'))?.actions ?? [];
 
   const trend = chart?.trend ?? [];
   const peak = Math.max(1, ...trend.map(point => point.rebate));
@@ -175,6 +178,10 @@ export default async function AssistantPage() {
 
       <div className="mb-6">
         <GrabScheduler accounts={accounts ?? []} />
+      </div>
+
+      <div className="mb-6">
+        <XiaocanToolbox accounts={accounts ?? []} actions={catalog} />
       </div>
 
       <div className="mb-6">

@@ -12,6 +12,7 @@ import core
 import runner_dispatch
 import vip
 import xiaocan_actions
+import xiaocan_extras
 import xiaocan_stats
 import xiaocan_bridge as xc
 import xiaocan_tasks
@@ -982,6 +983,56 @@ def _my_account_ids() -> list[int] | None:
         return None
     rows = core.query("SELECT id FROM accounts WHERE user_id=?", (user["id"],))
     return [r["id"] for r in rows]
+
+
+@bp.get("/xiaocan/actions")
+@core.require_login
+def xiaocan_actions_catalog():
+    """可用的小蚕动作及参数说明（前端据此渲染表单，不用硬编码清单）。"""
+    items = []
+    for key in xiaocan_extras.available():
+        spec = xiaocan_extras.PARAMS[key]
+        items.append({
+            "key": key,
+            "params": [
+                {"name": name, "required": required, "default": default,
+                 "type": "int" if cast is int else "str"}
+                for name, (cast, default, required) in spec.items()
+            ],
+        })
+    return core.ok({"actions": items})
+
+
+@bp.post("/xiaocan/accounts/<int:account_id>/call")
+@core.require_login
+def xiaocan_call_api(account_id: int):
+    """执行一个允许清单内的小蚕动作。"""
+    account = _own_account(account_id)
+    if not account:
+        return core.fail("账号不存在")
+    body = request.get_json(silent=True) or {}
+    action = str(body.get("action") or "").strip()
+    params = body.get("params") or {}
+    if not isinstance(params, dict):
+        return core.fail("params 必须是对象")
+    try:
+        data = xiaocan_extras.run(account, action, params)
+    except ValueError as exc:
+        return core.fail(str(exc))
+    except Exception as exc:
+        return core.fail(f"{action} 执行失败：{exc}")
+    if action in WRITE_ACTIONS:
+        xiaocan_stats.record_job(account_id, action, "success", "执行成功")
+    return core.ok(data)
+
+
+# 会改变账号状态的动作：成功后记一条运行日志，便于回溯
+WRITE_ACTIONS = {
+    "collect_points", "user_claim_points", "do_lottery_spin", "receive_extra_lottery",
+    "claim_ad_lottery_chance", "join_redpack_rain", "grab_redpack_rain", "client_withdraw",
+    "cancel_promotion_quota", "grab_brand_card", "grab_free_order_quota", "use_free_order_card",
+    "grab_rebate_card_quota", "exchange_goods", "draw_page_gift", "set_all_messages_read",
+}
 
 
 @bp.post("/xiaocan/accounts/<int:account_id>/grab")

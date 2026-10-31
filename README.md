@@ -182,6 +182,21 @@ DELETE /api/admin/xiaocan/grab-jobs/<job_id>      取消
 - `at` 传时间戳或 ISO 时间即预约；不传立即执行。到点前 0.5 秒内把轮询间隔压到 5ms。
 - 15 位以上的美团赏金活动（`poi_event_id`）需要额外参数，当前**显式拒绝**并说明原因，不会发出注定失败的请求。
 
+### 小蚕工具箱（45 个动作）
+
+`server/xiaocan_methods.py` 维护「函数名 → 微服务/方法名」映射（70 项，来自对官方 App 的调用点整理），
+`server/xiaocan_extras.py` 按白名单声明每个动作接受的参数与默认值，未声明参数一律拒绝。
+
+分组：任务与积分、抽奖与红包、红包与提现、订单、卡片与券、社区与礼包、消息中心。
+
+```
+GET  /api/xiaocan/actions                    动作清单（含参数定义，前端据此渲染）
+POST /api/xiaocan/accounts/<id>/call         {"action":"get_lottery_info","params":{}}
+POST /api/admin/xiaocan/accounts/<id>/call   管理员代任意账号执行
+```
+
+面板「助手看板 → 小蚕工具箱」每组按钮可直接执行，带参数的动作会在按钮旁出现输入框。
+
 ### 助手看板
 
 面板「业务 → 助手看板」(`/dashboard/assistant`)：

@@ -105,6 +105,7 @@ export {
 export type { VipLevelBenefit } from './users';
 
 export {
+  callXiaocanAction,
   clearJobLogsAction,
   fetchStoresAction,
   runAdminXiaocanDailyAction,
@@ -113,4 +114,4 @@ export {
   scheduleGrabAction,
 } from './xiaocan';
 
-export type { StoreItem, StoresResult, XcDailyResult, XcDailyStep } from './xiaocan';
+export type { StoreItem, StoresResult, XcAction, XcActionParam, XcDailyResult, XcDailyStep } from './xiaocan';
