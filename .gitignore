@@ -63,3 +63,5 @@ PixPin_*.mp4
 
 # Docker 部署测试数据（SQLite 库、上传文件、日志）
 docker/test/
+# 第三方小蚕助手（xiaocan-assistant）的运行数据，仅本机
+docker/assistant-data/

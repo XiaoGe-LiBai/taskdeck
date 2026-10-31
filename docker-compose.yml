@@ -25,5 +25,39 @@ services:
     # 使用宿主目录时可设置 user: "1000:1000"，并确保目录属于相同 UID/GID。
     # 命名卷默认使用镜像内 appuser（10001:10001），勿用 chmod 777。
 
+  # ── 可选：第三方「小蚕小帮手」（xiaocan-assistant 1.0.1）────────────────────
+  # 该项目没有 LICENSE 文件，属未授权代码：仅在本机构建使用，不随镜像发布、源码不进本仓库。
+  # 构建（在源码目录执行一次）：
+  #   docker build --network host -t xiaocan-assistant:1.0.1 .
+  # 启用：
+  #   docker compose --profile assistant up -d
+  # 访问（无鉴权，故只绑本机）：
+  #   ssh -N -L 8690:127.0.0.1:8690 <user>@<host>  然后开 http://127.0.0.1:8690
+  xiaocan-assistant:
+    profiles: ["assistant"]
+    image: xiaocan-assistant:1.0.1
+    container_name: xiaocan-assistant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8690:8690"
+    environment:
+      TZ: Asia/Shanghai
+      XIAOCAN_RELOAD: "0"
+    volumes:
+      - ./docker/assistant-data:/app/backend/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8690/health\")' || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   xiaocan-data:

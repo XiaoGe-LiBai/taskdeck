@@ -133,6 +133,25 @@ python3 docker/verify-image.py taskdeck:verify --browser
 
 发布工作流先构建候选镜像，在镜像内执行离线测试并验证管理员配置、重建、口令轮换、图标、非 root 权限及进程故障，成功后推送同一镜像。提供 `latest`、`main` 和 `sha-完整提交号` 标签；生产可固定 digest，OCI `org.opencontainers.image.revision` 对应源码提交。
 
+### 可选：接入第三方「小蚕小帮手」（仅本机）
+
+社区版 `xiaocan-assistant 1.0.1` 提供抢单/预约/多渠道通知，**没有 LICENSE，属未授权代码**：只在本机构建、不随镜像发布，源码也不进本仓库。
+
+```bash
+# 1) 在源码目录构建一次
+docker build --network host -t xiaocan-assistant:1.0.1 .
+
+# 2) 在仓库根目录启用该 profile（默认不会启动它）
+docker compose --profile assistant up -d xiaocan-assistant
+
+# 3) 它没有鉴权，只绑 127.0.0.1，用隧道访问
+ssh -N -L 8690:127.0.0.1:8690 <user>@<host>
+```
+
+数据落在 `docker/assistant-data/`（已忽略）。升级时替换源码重新构建，再 `docker compose --profile assistant up -d xiaocan-assistant`。
+
+> 注意：`docker compose up -d` 不带服务名会重建本项目的面板容器，而面板默认用命名卷 `xiaocan-data`；若你当前是绑定 `./docker/test`，先迁移数据或改 compose，否则重建后站点会变成空库。
+
 ## 代码位置
 
 - `web/`：Next.js 页面、Server Actions 和品牌组件。
