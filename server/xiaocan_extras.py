@@ -24,7 +24,7 @@ PARAMS: dict[str, dict[str, tuple[type, Any, bool]]] = {
     "get_lottery_info": {},
     "do_lottery_spin": {"prize_type": (int, 1, False)},
     "receive_extra_lottery": {"step": (int, 1, False)},
-    "claim_ad_lottery_chance": {},
+    "claim_ad_lottery_chance": {"bus_type": (int, 2, False)},
     "get_lottery_progress": {},
     "get_redpack_rain_event": {},
     "join_redpack_rain": {},

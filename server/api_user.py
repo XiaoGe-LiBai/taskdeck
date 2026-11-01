@@ -14,6 +14,7 @@ import vip
 import meituan_runner
 import time_service
 import xiaocan_actions
+import xiaocan_console
 import xiaocan_extras
 import xiaocan_orders
 import store_watch
@@ -1321,6 +1322,29 @@ WRITE_ACTIONS = {
     "cancel_promotion_quota", "grab_brand_card", "grab_free_order_quota", "use_free_order_card",
     "grab_rebate_card_quota", "exchange_goods", "draw_page_gift", "set_all_messages_read",
 }
+
+
+@bp.get("/xiaocan/accounts/<int:account_id>/overview")
+@core.require_login
+def xiaocan_overview_console(account_id: int):
+    """小蚕资产工作台：按段聚合只读数据。
+
+    `?sections=profile,assets` 指定要拉哪几段（逗号分隔），缺省只拉账号档案与元宝资产。
+    页面分段加载，避免一次打出十几个网关请求；单段失败只在 errors 里回报。
+    """
+    account = _own_account(account_id)
+    if not account:
+        return core.fail("账号不存在")
+    if not str(account.get("access_token") or "").strip():
+        return core.fail("账号缺少 access_token，请先重新扫码绑定")
+    sections = xiaocan_console.parse_sections(request.args.get("sections"))
+    raw_city = str(request.args.get("city_code") or "").strip()
+    city_code = int(raw_city) if raw_city.isdigit() else None
+    try:
+        result = xiaocan_console.overview(account, sections, city_code)
+    except Exception as exc:
+        return core.fail(f"读取小蚕数据失败：{exc}")
+    return core.ok({**result, "sections": list(sections)})
 
 
 @bp.post("/xiaocan/accounts/<int:account_id>/grab")

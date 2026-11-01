@@ -455,3 +455,120 @@ export async function resetWatchSeenAction(
   revalidatePath('/dashboard/assistant');
   return { ok: true, msg: `已清空 ${resp.data?.cleared ?? 0} 条去重记录，同样的条目会重新提醒` };
 }
+
+// ---------------------------------------------------------------- 资产工作台
+
+/** 后端 `/overview` 的分段名，与 server/xiaocan_console.py 的 SECTIONS 一一对应。 */
+export type XcOverviewSection
+  = | 'profile'
+    | 'assets'
+    | 'tasks'
+    | 'points'
+    | 'signin'
+    | 'lottery'
+    | 'rain'
+    | 'freeorder'
+    | 'cards'
+    | 'redpacks';
+
+export type XcTaskItem = {
+  id: number | null;
+  title: string;
+  desc: string;
+  icon: string;
+  point: number;
+  completed: number;
+  /** 只有上游 completed==3 才算可领取 */
+  claimable: boolean;
+};
+
+export type XcCardItem = {
+  id: number | null;
+  name: string;
+  desc: string;
+  pic: string;
+  card_type: number | null;
+  category: string;
+  expire_time: number;
+  status: number;
+  count: number;
+};
+
+export type XcRedpackItem = {
+  id: number | null;
+  name: string;
+  info: string;
+  value_num: number;
+  threshold_num: number;
+  end_time: number;
+  platforms: number[];
+};
+
+export type XcOverview = {
+  ok: boolean;
+  errors: Record<string, string>;
+  sections: XcOverviewSection[];
+  data: {
+    profile?: {
+      nickname: string;
+      avatar: string;
+      silk: number;
+      withdrawing: number;
+      withdraw_total: number;
+      completed_number: number;
+      phone: string;
+      real_name: string;
+      vip: {
+        level: number;
+        score: number;
+        next_level_score: number;
+        current_level_score: number;
+        is_plus: boolean;
+        expired_at: number;
+      };
+    };
+    assets?: { yb_point: number; unreceived_points: number; exchanged_yb_point: number };
+    tasks?: { items: XcTaskItem[]; claimable_count: number; claimable_point: number };
+    points?: { points: number; items: Array<{ task_id: number | null; task_name: string; point: number; time: number }> };
+    signin?: { days: number; records: Array<{ date: string; point: number }>; vip_signed_today: boolean };
+    lottery?: { lucky_times: number; day_num: number; steps: Array<{ step: number; title: string; target: number; current: number; received: boolean }> };
+    rain?: { has_event: boolean; event_id: number | null; begin_time: number; end_time: number; status: number };
+    freeorder?: { had: boolean; used: boolean; card_id: number | null };
+    cards?: { can_use_number: number; expiring_soon_number: number; items: XcCardItem[]; total: number };
+    redpacks?: { num: number; items: XcRedpackItem[] };
+  };
+};
+
+/** 按段读取小蚕资产；页面分两批拉，避免一次打出十几个网关请求。 */
+export async function fetchXiaocanOverviewAction(
+  accountId: number,
+  sections: XcOverviewSection[],
+  cityCode?: string,
+): Promise<{ ok: boolean; msg: string; data?: XcOverview }> {
+  const query = new URLSearchParams({ sections: sections.join(',') });
+  if (cityCode && /^\d+$/.test(cityCode)) {
+    query.set('city_code', cityCode);
+  }
+  const resp = await panelSend<XcOverview>(
+    'GET',
+    `/xiaocan/accounts/${accountId}/overview?${query.toString()}`,
+  );
+  if (!resp.ok || !resp.data) {
+    return { ok: false, msg: resp.msg || '读取失败' };
+  }
+  return { ok: true, msg: '', data: resp.data };
+}
+
+/** 账号所有者（管理员亦可跨用户）执行一次日常：元宝签到 → 会员签到抽奖 → 任务总览。 */
+export async function runXiaocanDailyForAccountAction(
+  accountId: number,
+): Promise<{ ok: boolean; msg: string; summary: string }> {
+  const resp = await panelSend<XcDailyResult>('POST', `/xiaocan/accounts/${accountId}/daily`, {});
+  if (!resp.ok || !resp.data) {
+    return { ok: false, msg: resp.msg || '执行失败', summary: '' };
+  }
+  const summary = resp.data.steps
+    .map(step => `${step.step}${step.ok ? ' ✓' : step.skipped ? '（已做过）' : ` ✗ ${step.error}`}`)
+    .join('；');
+  return { ok: resp.data.ok, msg: resp.data.ok ? '' : '部分步骤未成功', summary };
+}

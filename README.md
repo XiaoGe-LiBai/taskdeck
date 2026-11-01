@@ -169,6 +169,36 @@ GET /api/xiaocan/accounts/<id>/stores/explore?lat=&lon=&city_code=
 
 面板入口：侧栏「业务 → 附近霸王餐」(`/dashboard/stores`)，可选账号、填经纬度/城市码，在「附近外卖 / 搜索店铺 / 到店团购」间切换并翻页。定位只随请求传递，不落库。
 
+### 资产工作台（元宝 / 任务 / 签到 / 抽奖 / 红包雨 / 卡券）
+
+`server/xiaocan_console.py` 把只读 RPC 聚合成页面能直接渲染的结构，按段返回：
+
+| 段 | 数据来源 | 内容 |
+|---|---|---|
+| `profile` | `SilkwormService.GetClientUserInfo` | 昵称、钱包余额、累计提现、成单数、VIP 成长值 |
+| `assets` | `ActivityTaskMobileService.UserTaskV2` | 元宝余额、待领取、已兑换 |
+| `tasks` | `ActivityTaskMobileService.GetDailyTask` | 每日任务列表；上游 `completed==3` 才标可领取 |
+| `points` | `ActivityTaskMobileService.GetUnReceivedPointRecords` | 未领取元宝明细 |
+| `signin` | `SignInHistory` + `VipRightsService.UserSignInDays` | 连续签到天数（上游只给天数时没有逐日明细） |
+| `lottery` | `SilkwormLotteryMobile.LotteryInfo` + `GetLotteryProgress` | 剩余次数、每日额度、阶梯进度 |
+| `rain` | `SilkwormLotteryMobile.GetRedPackRainEvent` | 场次、起止时间、状态 |
+| `freeorder` | `VipRightsService.UserFreeOrderInfo` | 每月免单卡：是否持有、是否已核销 |
+| `cards` | `SilkwormCardService.GetUserCardNumber` + `GetUserCardList` | 卡券数量与列表，按券名归到免单卡 / 影音卡 / 品牌券 / 其他 |
+| `redpacks` | `RedPackService.GetUserRedPackNum` + `GetAppRedPackList` | 可用红包数量与明细 |
+
+```
+GET /api/xiaocan/accounts/<id>/overview?sections=profile,assets&city_code=440303
+```
+
+- `sections` 缺省只拉 `profile,assets`；页面分两批（档案+任务+积分+签到 / 抽奖+红包雨+卡券+红包）后台补齐，避免一次打出十几个网关请求；
+- 并发度固定 3，单段失败只写进 `errors`，不影响其它段；
+- `city_code` 由页面定位决定，卡券/红包等接口会带 `x-City` 头；定位只随请求传递，不落库。
+
+面板入口：
+
+- 「业务工具 → 小蚕」(`/dashboard/xiaocan`) 顶部工作台：资产指标、每日任务（可领取的单条领取）、未领取积分、签到历史、抽奖（抽一次 / 广告加次 / 额外次数）、整点红包雨（报名 / 抢）、外卖免单卡（状态 / 抢）、卡券包、红包列表；「执行日常」串行跑元宝签到 → 会员签到抽奖 → 任务总览。
+- 「账号管理」每个账号下方、「用户管理 → 用户详情 → 小蚕账号」每个账号卡片下方都有「资产与福利」折叠面板（compact 版，点开才拉数据）。
+
 ### 抢单与预约
 
 ```

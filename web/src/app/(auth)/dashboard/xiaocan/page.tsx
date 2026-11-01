@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { AnimatedList } from '@/components/reactbits';
 import { Card, CountValue, PageTitle, StatCard, Table, Tag, Td } from '@/features/panel/Ui';
 import { XiaocanBindPanel } from '@/features/panel/XiaocanBindPanel';
+import { XiaocanConsole } from '@/features/panel/XiaocanConsole';
 import { panelGet, panelMe } from '@/libs/PanelApi';
 
 const XIAOCAN_TASKS = [
@@ -89,6 +90,8 @@ export default async function XiaoCanPage() {
       </AnimatedList>
 
       <div className="flex flex-col gap-6">
+        <XiaocanConsole accounts={safeAccounts} />
+
         <Card
           title="小蚕账号登录 / 绑定"
           description="用微信扫码登录小蚕账号接入托管；绑定完成后在「账号管理」中维护开关与有效期"

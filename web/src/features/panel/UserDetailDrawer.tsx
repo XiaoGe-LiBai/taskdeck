@@ -8,6 +8,7 @@ import {
   sendUserNotificationAction,
 } from './actions';
 import { fen, fmtTime, Tag } from './Ui';
+import { XiaocanAccountConsole } from './XiaocanAccountConsole';
 
 type Props = {
   userId: number | null;
@@ -466,6 +467,13 @@ export const UserDetailDrawer = ({ userId, onClose, onRefresh }: Props) => {
                                         </span>
                                       ))}
                                     </div>
+                                    <XiaocanAccountConsole
+                                      account={{
+                                        id: acc.id,
+                                        nickname: acc.nickname,
+                                        account_info: acc.account_info,
+                                      }}
+                                    />
                                   </div>
                                 ))
                               )}
