@@ -131,6 +131,7 @@ export const PanelNav = (props: {
                 <Link
                   href={item.href}
                   onClick={props.onNavigate}
+                  title={isCollapsed ? item.label : undefined}
                   className={cn(
                     `
                       relative flex items-center rounded-md font-medium
@@ -224,31 +225,6 @@ export const PanelNav = (props: {
                     />
                   )}
                 </Link>
-
-                {/* 紧凑收缩模式下的浮动 Tooltip */}
-                {isCollapsed && (
-                  <div
-                    className="
-                      pointer-events-none absolute top-1/2 left-full z-50 ml-3
-                      flex -translate-y-1/2 items-center gap-1.5 rounded-md
-                      border border-border bg-popover px-2.5 py-1 text-xs
-                      font-medium whitespace-nowrap text-popover-foreground
-                      opacity-0 shadow-md transition-all duration-150
-                      group-hover:translate-x-0 group-hover:opacity-100
-                    "
-                  >
-                    <span>{item.label}</span>
-                    {badge !== undefined && (
-                      <span className="
-                        rounded-full bg-muted px-1.5 py-0.5 text-[10px]
-                        text-muted-foreground tabular-nums
-                      "
-                      >
-                        {badge}
-                      </span>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}

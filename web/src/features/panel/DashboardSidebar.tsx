@@ -71,23 +71,23 @@ export const DashboardSidebar = ({ badges, role, siteName, logoUrl }: Props) => 
         collapsed ? 'w-18 px-2 py-4' : 'w-64 px-3 py-4',
       )}
     >
-      {/* 顶部 Logo 与切换按钮 */}
+      {/* 顶部 Logo 与切换按钮：展开态 Logo+收起，折叠态只留一个展开按钮（顶部也要能展开） */}
       <div
         className={cn(
           'mb-5 flex items-center',
           collapsed ? 'justify-center' : 'justify-between px-2',
         )}
       >
-        <div className="flex items-center gap-2.5 overflow-hidden">
-          <BrandMark
-            size={36}
-            logoUrl={logoUrl}
-            className="
-              shrink-0 shadow-sm transition-transform duration-300
-              hover:scale-105
-            "
-          />
-          {!collapsed && (
+        {!collapsed && (
+          <div className="flex items-center gap-2.5 overflow-hidden">
+            <BrandMark
+              size={36}
+              logoUrl={logoUrl}
+              className="
+                shrink-0 shadow-sm transition-transform duration-300
+                hover:scale-105
+              "
+            />
             <div className="min-w-0 transition-opacity duration-200">
               {/* 字标用 StrokeText：切换到任意页面都会重新"描"一遍 */}
               <div className="
@@ -125,44 +125,40 @@ export const DashboardSidebar = ({ badges, role, siteName, logoUrl }: Props) => 
                 />
               </div>
             </div>
-          )}
-        </div>
-
-        {/* 展开状态下的右上角折叠按钮 */}
-        {!collapsed && (
-          <button
-            type="button"
-            onClick={toggle}
-            aria-label="收起侧边栏"
-            title="收起侧边栏"
-            className="
-              inline-flex size-7 items-center justify-center rounded-md border
-              border-border/60 text-muted-foreground transition-all duration-150
-              hover:bg-muted hover:text-foreground
-              active:scale-90
-            "
-          >
-            <svg
-              className="size-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-          </button>
+          </div>
         )}
+
+        {/* 顶部切换按钮始终可点：展开态收起、折叠态展开 */}
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
+          title={collapsed ? '展开侧边栏' : '收起侧边栏'}
+          className="
+            inline-flex size-7 items-center justify-center rounded-md border
+            border-border/60 text-muted-foreground transition-all duration-150
+            hover:bg-muted hover:text-foreground
+            active:scale-90
+          "
+        >
+          <svg
+            className="size-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            {collapsed
+              ? <polyline points="9 18 15 12 9 6" />
+              : <polyline points="15 18 9 12 15 6" />}
+          </svg>
+        </button>
       </div>
 
-      {/* 导航菜单容器，支持滚动；折叠态放开横向溢出，否则悬浮 tooltip 会被裁掉 */}
-      <div className={cn(
-        'flex-1 overflow-y-auto py-1',
-        collapsed ? 'overflow-x-visible' : 'overflow-x-hidden',
-      )}
-      >
+      {/* 导航菜单容器，支持纵向滚动；横向溢出会被裁掉，避免出现滚动条 */}
+      <div className="flex-1 overflow-x-hidden overflow-y-auto py-1">
         <PanelNav
           badges={badges}
           role={role}
@@ -212,16 +208,6 @@ export const DashboardSidebar = ({ badges, role, siteName, logoUrl }: Props) => 
             </svg>
             {!collapsed && <span>收起侧边栏</span>}
           </div>
-          {!collapsed && (
-            <kbd
-              className="
-                rounded-sm border bg-muted/50 px-1.5 py-0.5 font-mono
-                text-[10px] text-muted-foreground
-              "
-            >
-              收缩
-            </kbd>
-          )}
         </button>
       </div>
     </aside>
