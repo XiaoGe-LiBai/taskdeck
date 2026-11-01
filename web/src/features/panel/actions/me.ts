@@ -51,10 +51,11 @@ export async function redeemPointsCardAction(
 }
 
 /**
- * 购买会员套餐（会员期商品需指定作用到哪个账号）。
- *
- * 后端会同时做两件事：给该账号加会员期 + 按天数提升用户等级（取较大者，不降级），
- * 并按等级打折扣分。返回里带上实付与授予等级，供页面给出准确提示。
+ * 购买套餐。三类商品各管各的：
+ *   - vip：提升用户等级（无需账号）
+ *   - membership：给指定托管号续会员期（需账号）
+ *   - slot：加车位
+ * 会员升级与托管续期都按等级打折，车位不打折。
  */
 export async function purchaseProductAction(
   productId: number,

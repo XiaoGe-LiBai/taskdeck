@@ -123,10 +123,10 @@ def points_summary():
     for r in rows:
         p = dict(r)
         list_price = int(p["points_price"] or 0)
-        # 与 purchase() 同一口径：会员期商品按等级打折，车位不打折
+        # 与 purchase() 同一口径：会员升级(vip)与托管续期(membership)按等级打折，车位不打折
         p["list_price"] = list_price
         p["pay_price"] = (
-            vip.apply_discount(list_price, user) if p["product_type"] == "membership" else list_price
+            vip.apply_discount(list_price, user) if p["product_type"] in ("vip", "membership") else list_price
         )
         p["discounted"] = p["pay_price"] < list_price
         products.append(p)
@@ -224,14 +224,14 @@ def purchase():
             return core.fail("账号不存在")
         account = dict(row)
 
-    if product["product_type"] == "membership" and not account:
-        return core.fail("请先绑定一个小蚕账号")
+    ptype = product["product_type"]
+    # 只有「托管号续期」需要账号；「会员升级(vip)」和「车位(slot)」都不需要
+    if ptype == "membership" and not account:
+        return core.fail("请先选择要续期的托管账号")
 
-    # 会员期商品按会员等级打折（高级实付 95% / 至尊 90%）；
-    # 车位不打折——它是"容量"，不在会员期折扣的语义里。
+    # 会员升级(vip) 与 托管续期(membership) 都按等级打折；车位不打折（它是容量）
     list_price = int(product["points_price"])
-    is_membership = product["product_type"] == "membership"
-    price = vip.apply_discount(list_price, user) if is_membership else list_price
+    price = vip.apply_discount(list_price, user) if ptype in ("vip", "membership") else list_price
 
     if int(user["points_balance"]) < price:
         return core.fail("积分不足")
@@ -248,21 +248,11 @@ def purchase():
     granted_level = 0
     old_level = vip.current_level(user)
     new_level = old_level
-    if is_membership and account:
-        days = int(product["grant_value"] or 0)
+    days = int(product["grant_value"] or 0)
 
-        # ① 账号会员期：决定"哪个号能跑"（原有逻辑，不动）
-        base = core.parse_iso(account["membership_expire"])
-        start = base if (base and base > core.now_dt()) else core.now_dt()
-        new_expire = start + timedelta(days=days)
-        core.update(
-            "accounts",
-            account["id"],
-            {"membership_expire": core.iso(new_expire, ms=False)[:16], "updated_time": core.iso()},
-        )
-
-        # ② 用户等级：决定"有哪些权益"。取当前等级与本次授予等级的较大者（不降级），
-        #    到期时间按购买天数顺延（已过期则从今天算）。
+    if ptype == "vip":
+        # 会员升级：只提升用户等级（无需账号）。取当前等级与授予等级较大者，不降级；
+        # 到期时间按购买天数顺延（已过期则从今天算）。
         granted_level = vip.level_for_membership_days(days)
         if granted_level > 0:
             new_level = max(old_level, granted_level)
@@ -271,10 +261,19 @@ def purchase():
                 "UPDATE users SET vip_level=?, vip_expire=? WHERE id=?",
                 (new_level, new_vip_expire, user["id"]),
             )
-
-    if product["product_type"] == "slot":
+    elif ptype == "membership":
+        # 托管号续期：只延长账号会员期（决定"哪个号能跑"），不再联动用户等级
+        base = core.parse_iso(account["membership_expire"])
+        start = base if (base and base > core.now_dt()) else core.now_dt()
+        new_expire = start + timedelta(days=days)
+        core.update(
+            "accounts",
+            account["id"],
+            {"membership_expire": core.iso(new_expire, ms=False)[:16], "updated_time": core.iso()},
+        )
+    elif ptype == "slot":
         core.execute(
-            "UPDATE users SET slot_total=slot_total+? WHERE id=?", (int(product["grant_value"]), user["id"])
+            "UPDATE users SET slot_total=slot_total+? WHERE id=?", (days, user["id"])
         )
 
     # 邀请奖励：直接上级拿消费积分的比例由**上级的会员等级**决定；

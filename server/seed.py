@@ -17,11 +17,15 @@ COUPON_TYPES = [
 ]
 
 PRODUCTS = [
-    ("membership_day", "1 天会员", "membership", 1, 198, 1),
-    ("membership_week", "7 天会员", "membership", 7, 1188, 2),
-    ("membership_month", "30 天会员", "membership", 30, 3998, 3),
-    ("slot_one", "1 个账号车位", "slot", 1, 99, 4),
-    ("forever", "永久会员-加盟", "membership", 3650, 38800, 5),
+    # 会员升级（用户等级，无需绑号）
+    ("vip_senior_30", "高级会员 30 天", "vip", 30, 2998, 1),
+    ("vip_supreme_365", "至尊会员 365 天", "vip", 365, 19800, 2),
+    ("vip_supreme_forever", "至尊会员 永久", "vip", 3650, 38800, 3),
+    # 托管号续期（需绑号，让号能跑）
+    ("account_week", "托管号续期 7 天", "membership", 7, 1188, 4),
+    ("account_month", "托管号续期 30 天", "membership", 30, 3998, 5),
+    # 车位
+    ("slot_one", "1 个账号车位", "slot", 1, 99, 6),
 ]
 
 CARD_TIERS = [
