@@ -1,5 +1,6 @@
 import type { MyHistory } from '@/types/Panel';
 import { AnimatedList } from '@/components/reactbits';
+import { ORDER_PLATFORM_LABEL, ORDER_STATUS_LABEL, ORDER_STATUS_TONE } from '@/features/panel/OrderStatus';
 import { CountValue, Empty, fmtTime, PageTitle, StatCard, Table, Tag, Td } from '@/features/panel/Ui';
 import { panelGet } from '@/libs/PanelApi';
 
@@ -14,30 +15,34 @@ const signupStatusTone: Record<string, 'success' | 'warning' | 'danger' | 'gray'
   failed: 'danger',
 };
 
+const yuan = (value: number) => `¥${Number(value || 0).toFixed(2)}`;
+
 export default async function HistoryPage() {
   const data = await panelGet<MyHistory>('/my/xiaocan-history');
   const records = data?.records ?? [];
   const signupCount = records.filter(r => r.kind === 'signup').length;
   const redeemCount = records.filter(r => r.kind === 'redeem').length;
+  const orderCount = records.filter(r => r.kind === 'order').length;
 
   return (
     <>
       <PageTitle
-        title="我的报名/抢兑记录"
-        description="每次「立即报名」的执行结果、当前开抢的抢兑配置，按时间倒序"
+        title="我的报名/抢兑/订单记录"
+        description="每次「立即报名」的执行结果、当前开抢的抢兑配置、录入的霸王餐订单，按时间倒序"
       />
 
       <AnimatedList
         stagger={60}
         className="
           mb-6 grid gap-4
-          sm:grid-cols-3
+          sm:grid-cols-2
+          lg:grid-cols-4
         "
       >
         <StatCard
           label="记录总计"
           value={<CountValue value={records.length} suffix="条" />}
-          hint="近期抢券与抢兑动作"
+          hint="近期抢券、抢兑与订单"
           icon="📋"
         />
         <StatCard
@@ -52,10 +57,16 @@ export default async function HistoryPage() {
           hint="自动准点抢兑权益"
           icon="🎁"
         />
+        <StatCard
+          label="霸王餐订单"
+          value={<CountValue value={orderCount} suffix="单" />}
+          hint="录入并跟进审核的订单"
+          icon="🍜"
+        />
       </AnimatedList>
 
       {records.length === 0
-        ? <Empty text="还没有报名或抢兑记录，去「小蚕」页绑定账号后试试" />
+        ? <Empty text="还没有报名、抢兑或订单记录，去「小蚕」页绑定账号后试试" />
         : (
             <Table head={['类型', '账号', '内容', '状态', '时间', '详情']}>
               {records.map((row) => {
@@ -91,6 +102,40 @@ export default async function HistoryPage() {
                         {row.error
                           ? <span className="text-destructive">{row.error}</span>
                           : (row.output || '—')}
+                      </Td>
+                    </tr>
+                  );
+                }
+                if (row.kind === 'order') {
+                  return (
+                    <tr key={`order-${row.id}`}>
+                      <Td><Tag tone="success">订单</Tag></Td>
+                      <Td>{row.account_nickname}</Td>
+                      <Td>
+                        <div className="font-medium">{row.store_name || '—'}</div>
+                        <div className="text-xs text-muted-foreground">
+                          外卖单号：
+                          {row.platform_order_id || '—'}
+                        </div>
+                      </Td>
+                      <Td>
+                        <Tag tone={ORDER_STATUS_TONE[row.status] ?? 'gray'}>
+                          {ORDER_STATUS_LABEL[row.status] ?? row.status}
+                        </Tag>
+                      </Td>
+                      <Td className="text-xs tabular-nums">
+                        {fmtTime(row.created_time)}
+                        {row.settled_time && (
+                          <div className="text-muted-foreground">
+                            {fmtTime(row.settled_time)}
+                          </div>
+                        )}
+                      </Td>
+                      <Td className="text-xs text-muted-foreground tabular-nums">
+                        {`${yuan(row.order_money)} / ${yuan(row.rebate_money)}`}
+                        <div className="text-[10px]">
+                          {ORDER_PLATFORM_LABEL[row.platform] ?? row.platform}
+                        </div>
                       </Td>
                     </tr>
                   );

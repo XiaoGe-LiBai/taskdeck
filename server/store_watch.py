@@ -49,6 +49,14 @@ def ensure_tables() -> None:
       first_seen TEXT NOT NULL,
       PRIMARY KEY (watch_id, item_key)
     )""")
+    # 命中流水要能被人看懂，光有 item_key 不够，补上标题与详情两列（旧行留空由前端回退显示）
+    existing = {row["name"] for row in db.execute("PRAGMA table_info(xc_watch_seen)")}
+    for column, ddl in (
+        ("title", "TEXT NOT NULL DEFAULT ''"),
+        ("detail", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        if column not in existing:
+            db.execute(f"ALTER TABLE xc_watch_seen ADD COLUMN {column} {ddl}")
 
 
 def _params(raw: Any) -> dict:
@@ -61,14 +69,51 @@ def _params(raw: Any) -> dict:
         return {}
 
 
-def create_watch(account_id: int, kind: str, params: dict, interval_sec: int = DEFAULT_INTERVAL) -> dict:
-    ensure_tables()
-    if kind not in KINDS:
-        raise ValueError(f"kind 只能是 {', '.join(KINDS)}")
+def _validate_params(kind: str, params: dict) -> None:
+    """四类监控各自的必填项，创建与编辑共用一份校验。"""
     if kind in ("keyword", "name") and not str(params.get("keyword") or "").strip():
         raise ValueError("关键词监控必须填关键词")
     if kind == "stock" and not str(params.get("promotion_id") or "").strip():
         raise ValueError("名额监控必须填活动 ID")
+
+
+def get_watch(watch_id: int, account_ids: list[int] | None = None) -> dict | None:
+    ensure_tables()
+    row = core.query_one("SELECT * FROM xc_store_watches WHERE id=?", (watch_id,))
+    if not row:
+        return None
+    item = dict(row)
+    if account_ids is not None and item["account_id"] not in account_ids:
+        return None
+    item["params"] = _params(item["params"])
+    return item
+
+
+def update_watch(watch_id: int, payload: dict, account_ids: list[int] | None = None) -> dict:
+    """修改监控条件与节奏。
+
+    类型不可改：`xc_watch_seen` 的去重语义是按类型定义的（keyword 按店名+活动号、
+    stock 按活动号+剩余数），换类型后旧记录和新判定结果会互相矛盾，
+    只能删掉重建。归属账号同理，换账号等于换一个身份在跑。
+    """
+    watch = get_watch(watch_id, account_ids)
+    if not watch:
+        raise ValueError("监控不存在")
+    if "kind" in payload and str(payload["kind"]) != watch["kind"]:
+        raise ValueError("监控类型不可修改，请删除后重建")
+    params = payload.get("params") if isinstance(payload.get("params"), dict) else watch["params"]
+    _validate_params(watch["kind"], params)
+    interval = max(MIN_INTERVAL, int(payload.get("interval_sec") or watch["interval_sec"]))
+    core.execute("UPDATE xc_store_watches SET params=?, interval_sec=? WHERE id=?",
+                 (json.dumps(params, ensure_ascii=False), interval, watch_id))
+    return get_watch(watch_id, account_ids) or {}
+
+
+def create_watch(account_id: int, kind: str, params: dict, interval_sec: int = DEFAULT_INTERVAL) -> dict:
+    ensure_tables()
+    if kind not in KINDS:
+        raise ValueError(f"kind 只能是 {', '.join(KINDS)}")
+    _validate_params(kind, params)
     interval = max(MIN_INTERVAL, int(interval_sec or DEFAULT_INTERVAL))
     db = core.get_db()
     db.execute(
@@ -99,11 +144,47 @@ def delete_watch(watch_id: int, account_ids: list[int] | None = None) -> bool:
     return True
 
 
-def set_status(watch_id: int, status: str) -> bool:
+def set_status(watch_id: int, status: str, account_ids: list[int] | None = None) -> bool:
     if status not in ("active", "paused"):
         raise ValueError("status 只能是 active / paused")
+    if get_watch(watch_id, account_ids) is None:
+        raise ValueError("监控不存在")
     core.execute("UPDATE xc_store_watches SET status=? WHERE id=?", (status, watch_id))
     return True
+
+
+def list_hits(watch_id: int, account_ids: list[int] | None = None, *, limit: int = 100) -> list[dict]:
+    """命中流水。
+
+    `xc_watch_seen` 本身就是「首次发现」记录，不需要另建表：通知错过之后
+    仍然可以在页面上回看当时发现了什么，否则只留下一个 hits 数字。
+    """
+    if get_watch(watch_id, account_ids) is None:
+        raise ValueError("监控不存在")
+    rows = core.query(
+        "SELECT item_key, title, detail, first_seen FROM xc_watch_seen "
+        "WHERE watch_id=? ORDER BY first_seen DESC, rowid DESC LIMIT ?",
+        (watch_id, max(1, min(500, limit))),
+    )
+    out = []
+    for row in rows:
+        item = dict(row)
+        # 加列之前的老行没有 title/detail，回退成 item_key，至少看得出抓到了什么
+        item["title"] = item.get("title") or item["item_key"]
+        out.append(item)
+    return out
+
+
+def reset_seen(watch_id: int, account_ids: list[int] | None = None) -> int:
+    """清空去重记录，让已经提醒过的条目重新算一次「新命中」。
+
+    hits 是累计发现量（统计口径），不随重置归零。
+    """
+    if get_watch(watch_id, account_ids) is None:
+        raise ValueError("监控不存在")
+    row = core.query_one("SELECT COUNT(*) AS c FROM xc_watch_seen WHERE watch_id=?", (watch_id,))
+    core.execute("DELETE FROM xc_watch_seen WHERE watch_id=?", (watch_id,))
+    return int(row["c"]) if row else 0
 
 
 # ---------------------------------------------------------------- 探测
@@ -208,8 +289,9 @@ def run_once(watch: dict) -> dict:
     fresh = []
     for item in found:
         inserted = core.get_db().execute(
-            "INSERT OR IGNORE INTO xc_watch_seen (watch_id,item_key,first_seen) VALUES (?,?,?)",
-            (watch["id"], item["key"], core.iso()),
+            "INSERT OR IGNORE INTO xc_watch_seen (watch_id,item_key,title,detail,first_seen) "
+            "VALUES (?,?,?,?,?)",
+            (watch["id"], item["key"], item["title"], item["detail"], core.iso()),
         ).rowcount
         if inserted:
             fresh.append(item)

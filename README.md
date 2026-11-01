@@ -197,21 +197,34 @@ POST   /api/xiaocan/orders/<id>/use-free-card    核销免单卡
 - 提交单号走 `SilkwormPromotion.PromotionService.SubmitPlatformOrderId`（App 20），成功后本地状态转 `auditing`；
 - 延时券按平台映射 `task_type`：美团 4、饿了么 3；比例返现订单会被拒绝；
 - 免单卡先查 `UserFreeOrderInfo` 取券 ID，再用外卖单号核销（美团 `order_business=1`，饿了么 2）；
-- 平台单号一旦绑定不允许二次修改（与官方一致）。
+- 平台单号一旦绑定不允许二次修改（与官方一致）；
+- `PUT` 改状态时，只有状态真的变了才推送通知（文案用中文标签），并在进入
+  `completed / rejected / cancelled` 终态时补 `settled_time`（人工填过的时间不会被覆盖）；
+- 订单同时并入 `GET /api/my/xiaocan-history`，所以「我的记录」页能看到订单，
+  不再和助手页割裂成两套数据。
 
 ### 店铺监控（关键词 / 店名 / 名额 / 同店多方案）
 
 ```
 GET    /api/xiaocan/watch
 POST   /api/xiaocan/watch                        {account_id, kind, params, interval_sec}
+PUT    /api/xiaocan/watch/<id>                   {params, interval_sec} 改条件与节奏
+GET    /api/xiaocan/watch/<id>/hits?limit=       命中流水（错过的通知还能回看）
 POST   /api/xiaocan/watch/<id>/run               立即执行一次
 POST   /api/xiaocan/watch/<id>/status            {"status":"active|paused"}
+POST   /api/xiaocan/watch/<id>/reset-seen        清空去重记录，允许重新提醒
 DELETE /api/xiaocan/watch/<id>
 ```
 
 - 后台常驻线程按各自间隔轮询（最小 60 秒），命中写 `xc_watch_seen` 去重后推送到已配置的通知渠道；
 - **只发现与通知，不自动抢单**——避免无人值守时把额度打空；
-- 扫描失败会把原因写进 `last_error`（WAF 熔断不再被吞成「0 条」）。
+- 扫描失败会把原因写进 `last_error`（WAF 熔断不再被吞成「0 条」）；
+- `PUT` 不允许改 `kind` 与归属账号：去重键是按类型定义的，换类型后旧记录会和
+  新判定结果互相矛盾，只能删除重建；间隔低于 60 秒会被抬到 60 秒；
+- `xc_watch_seen` 除 `item_key` 外还存 `title/detail`，因此命中记录在界面上是
+  可读的一行，而不是一个哈希键（加列之前的老行回退显示 `item_key`）；
+- 暂停、编辑、查询命中、重置去重都带账号归属校验，越权请求直接失败；
+- `reset-seen` 只清去重记录，`hits` 作为累计发现量不清零。
 
 ### 授时（NTP）
 

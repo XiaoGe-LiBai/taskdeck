@@ -3,8 +3,8 @@ import { ClearLogsButton } from '@/features/panel/ClearLogsButton';
 import { GrabScheduler } from '@/features/panel/GrabScheduler';
 import { MeituanCard } from '@/features/panel/MeituanCard';
 import { OrdersCard } from '@/features/panel/OrdersCard';
-import { WatchCard } from '@/features/panel/WatchCard';
 import { Card, Empty, PageTitle, StatCard, Tag } from '@/features/panel/Ui';
+import { WatchCard } from '@/features/panel/WatchCard';
 import { XiaocanToolbox } from '@/features/panel/XiaocanToolbox';
 import { panelGet } from '@/libs/PanelApi';
 
@@ -93,7 +93,7 @@ export default async function AssistantPage() {
   const catalog = (await panelGet<{ actions: XcAction[] }>('/xiaocan/actions'))?.actions ?? [];
   const meituan = await panelGet<{ accounts: MeituanAccount[]; runtime_ready: boolean }>('/xiaocan/meituan/accounts');
   const clock = await panelGet<TimeStatus>('/xiaocan/time');
-  const orderData = await panelGet<{ orders: XcOrder[] }>('/xiaocan/orders?limit=50');
+  const orderData = await panelGet<{ orders: XcOrder[] }>('/xiaocan/orders?limit=200');
   const watchData = await panelGet<{ watches: StoreWatch[] }>('/xiaocan/watch');
 
   const trend = chart?.trend ?? [];

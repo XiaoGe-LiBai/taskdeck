@@ -889,13 +889,41 @@ def my_xiaocan_history():
         "updated_time": row["updated_time"],
     } for row in redeems]
 
+    # 霸王餐订单并入同一条时间线：以前订单只出现在助手页，
+    # 「我的记录」里查不到，两个视角是割裂的。
+    account_names = {
+        row["id"]: (row["nickname"] or f"账号#{row['id']}")
+        for row in core.query("SELECT id, nickname FROM accounts")
+    }
+    order_events = [{
+        "kind": "order",
+        "id": row["id"],
+        "account_id": row["account_id"],
+        "account_nickname": account_names.get(row["account_id"], "未关联账号"),
+        "store_name": row["store_name"],
+        "platform": row["platform"],
+        "order_sn": row["order_sn"],
+        "platform_order_id": row["platform_order_id"],
+        "order_money": row["order_money"],
+        "rebate_money": row["rebate_money"],
+        "status": row["status"],
+        "created_time": row["created_time"],
+        "updated_time": row["updated_time"],
+        "settled_time": row["settled_time"],
+    } for row in xiaocan_orders.list_orders(_my_account_ids(), limit=50)]
+
     # 合并排序：报名按创建时间、抢兑按最近更新时间，新→旧
     merged = sorted(
-        [*signup_events, *redeem_events],
+        [*signup_events, *redeem_events, *order_events],
         key=lambda e: (e.get("created_time") or e.get("updated_time") or ""),
         reverse=True,
     )
-    return core.ok({"records": merged[:80], "signup_total": len(signup_events), "redeem_total": len(redeem_events)})
+    return core.ok({
+        "records": merged[:100],
+        "signup_total": len(signup_events),
+        "redeem_total": len(redeem_events),
+        "order_total": len(order_events),
+    })
 
 
 @bp.get("/announcements/latest")
@@ -1106,7 +1134,7 @@ def xiaocan_watch_delete(watch_id: int):
 def xiaocan_watch_status(watch_id: int):
     body = request.get_json(silent=True) or {}
     try:
-        store_watch.set_status(watch_id, str(body.get("status") or ""))
+        store_watch.set_status(watch_id, str(body.get("status") or ""), _my_account_ids())
     except ValueError as exc:
         return core.fail(str(exc))
     return core.ok({"updated": watch_id})
@@ -1119,6 +1147,37 @@ def xiaocan_watch_run(watch_id: int):
     if not target:
         return core.fail("监控不存在")
     return core.ok(store_watch.run_once(target))
+
+
+@bp.put("/xiaocan/watch/<int:watch_id>")
+@core.require_login
+def xiaocan_watch_update(watch_id: int):
+    """改监控条件与间隔；类型不可改，只能删除重建。"""
+    try:
+        return core.ok(store_watch.update_watch(watch_id, request.get_json(silent=True) or {}, _my_account_ids()))
+    except ValueError as exc:
+        return core.fail(str(exc))
+
+
+@bp.get("/xiaocan/watch/<int:watch_id>/hits")
+@core.require_login
+def xiaocan_watch_hits(watch_id: int):
+    """命中流水，让错过的通知还能回看。"""
+    limit = int(request.args.get("limit", 100) or 100)
+    try:
+        return core.ok({"hits": store_watch.list_hits(watch_id, _my_account_ids(), limit=limit)})
+    except ValueError as exc:
+        return core.fail(str(exc))
+
+
+@bp.post("/xiaocan/watch/<int:watch_id>/reset-seen")
+@core.require_login
+def xiaocan_watch_reset_seen(watch_id: int):
+    """清空去重记录：之后同样的条目会被当成新命中重新提醒一次。"""
+    try:
+        return core.ok({"cleared": store_watch.reset_seen(watch_id, _my_account_ids())})
+    except ValueError as exc:
+        return core.fail(str(exc))
 
 
 # ---------------------------------------------------------------- 美团账号

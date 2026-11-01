@@ -132,5 +132,86 @@ class RunOnceTests(Base):
             watch.set_status(created["id"], "wat")
 
 
+class UpdateTests(Base):
+    def test_params_and_interval_are_editable(self) -> None:
+        created = watch.create_watch(self.account_id, "keyword", {"keyword": "披萨"})
+        updated = watch.update_watch(created["id"], {
+            "params": {"keyword": "汉堡", "lat": 1, "lon": 2}, "interval_sec": 600}, None)
+        self.assertEqual(updated["params"]["keyword"], "汉堡")
+        self.assertEqual(updated["interval_sec"], 600)
+
+    def test_kind_is_immutable(self) -> None:
+        """换类型会让 xc_watch_seen 的去重语义和新判定结果互相矛盾。"""
+        created = watch.create_watch(self.account_id, "keyword", {"keyword": "披萨"})
+        with self.assertRaises(ValueError) as caught:
+            watch.update_watch(created["id"], {"kind": "dual"}, None)
+        self.assertIn("不可修改", str(caught.exception))
+
+    def test_update_still_validates_params(self) -> None:
+        created = watch.create_watch(self.account_id, "name", {"keyword": "披萨"})
+        with self.assertRaises(ValueError):
+            watch.update_watch(created["id"], {"params": {"keyword": "  "}}, None)
+
+    def test_update_interval_floor(self) -> None:
+        created = watch.create_watch(self.account_id, "dual", {"lat": 1})
+        updated = watch.update_watch(created["id"], {"interval_sec": 1}, None)
+        self.assertEqual(updated["interval_sec"], watch.MIN_INTERVAL)
+
+    def test_update_out_of_scope(self) -> None:
+        created = watch.create_watch(self.account_id, "dual", {"lat": 1})
+        with self.assertRaises(ValueError):
+            watch.update_watch(created["id"], {"interval_sec": 120}, [999])
+
+    def test_set_status_out_of_scope(self) -> None:
+        created = watch.create_watch(self.account_id, "dual", {"lat": 1})
+        with self.assertRaises(ValueError):
+            watch.set_status(created["id"], "paused", [999])
+        self.assertEqual(watch.list_watches(None)[0]["status"], "active", "越权不应改动别人的监控")
+
+
+class HitHistoryTests(Base):
+    def test_hits_are_readable_after_notify(self) -> None:
+        created = watch.create_watch(self.account_id, "keyword", {"keyword": "披萨"})
+        hit = {"key": "测试披萨店|12", "title": "测试披萨店", "detail": "返 5800 · 剩余 1"}
+        with mock.patch.object(watch, "probe", return_value=[hit]), \
+             mock.patch("notify.notify_async"):
+            watch.run_once(created)
+        hits = watch.list_hits(created["id"], None)
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]["title"], "测试披萨店")
+        self.assertIn("剩余 1", hits[0]["detail"])
+        self.assertTrue(hits[0]["first_seen"])
+
+    def test_legacy_rows_fall_back_to_item_key(self) -> None:
+        """加列之前写入的老记录没有 title，回退显示 item_key 而不是空白。"""
+        created = watch.create_watch(self.account_id, "dual", {"lat": 1})
+        core.get_db().execute(
+            "INSERT INTO xc_watch_seen (watch_id,item_key,first_seen) VALUES (?,?,?)",
+            (created["id"], "老条目", core.iso()))
+        self.assertEqual(watch.list_hits(created["id"], None)[0]["title"], "老条目")
+
+    def test_reset_seen_lets_it_notify_again(self) -> None:
+        created = watch.create_watch(self.account_id, "dual", {"lat": 1, "lon": 2})
+        hit = {"key": "同店", "title": "同店", "detail": "同店 2 个方案"}
+        with mock.patch.object(watch, "probe", return_value=[hit]), \
+             mock.patch("notify.notify_async") as first_round:
+            watch.run_once(created)
+            watch.run_once(created)
+        self.assertEqual(first_round.call_count, 1)
+
+        self.assertEqual(watch.reset_seen(created["id"], None), 1)
+        with mock.patch.object(watch, "probe", return_value=[hit]), \
+             mock.patch("notify.notify_async") as after_reset:
+            third = watch.run_once(created)
+        self.assertEqual(len(third["new"]), 1, "重置去重后要能重新提醒")
+        self.assertEqual(after_reset.call_count, 1)
+        self.assertEqual(watch.list_watches(None)[0]["hits"], 2, "累计命中数不随重置归零")
+
+    def test_reset_seen_out_of_scope(self) -> None:
+        created = watch.create_watch(self.account_id, "dual", {"lat": 1})
+        with self.assertRaises(ValueError):
+            watch.reset_seen(created["id"], [999])
+
+
 if __name__ == "__main__":
     unittest.main()

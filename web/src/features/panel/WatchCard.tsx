@@ -1,13 +1,16 @@
 'use client';
 
-import type { StoreWatch } from './actions';
+import type { StoreWatch, WatchHit } from './actions';
 import { useActionState, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import {
   createWatchAction,
   deleteWatchAction,
+  fetchWatchHitsAction,
+  resetWatchSeenAction,
   runWatchAction,
   setWatchStatusAction,
+  updateWatchAction,
 } from './actions';
 import { Card, Empty, Tag } from './Ui';
 
@@ -28,7 +31,7 @@ const KIND_HINT: Record<string, string> = {
 const formatTime = (ts: number) =>
   ts > 0 ? new Date(ts * 1000).toLocaleString('zh-CN', { hour12: false }) : '—';
 
-/** 店铺监控：四类监控的创建、启停、立即执行、删除。 */
+/** 店铺监控：四类监控的创建、启停、立即执行、参数编辑、命中回看与删除。 */
 export const WatchCard = (props: {
   watches: StoreWatch[];
   accounts: Array<{ id: number; nickname: string; account_info: string }>;
@@ -38,6 +41,9 @@ export const WatchCard = (props: {
   const [delState, delAction] = useActionState(deleteWatchAction, '');
   const [rowMessage, setRowMessage] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState('');
+  const [editing, setEditing] = useState<number | null>(null);
+  const [hitsOpen, setHitsOpen] = useState<number | null>(null);
+  const [hits, setHits] = useState<Record<number, WatchHit[]>>({});
 
   const run = async (id: number) => {
     setBusy(`run-${id}`);
@@ -52,6 +58,33 @@ export const WatchCard = (props: {
     setBusy('');
     if (!res.ok) {
       setRowMessage(prev => ({ ...prev, [watch.id]: res.msg }));
+    }
+  };
+
+  /** 命中记录是点开才拉的，免得每张卡片都多一次请求。 */
+  const toggleHits = async (id: number) => {
+    if (hitsOpen === id) {
+      setHitsOpen(null);
+      return;
+    }
+    setHitsOpen(id);
+    setBusy(`hits-${id}`);
+    const res = await fetchWatchHitsAction(id);
+    setBusy('');
+    if (!res.ok) {
+      setRowMessage(prev => ({ ...prev, [id]: res.msg }));
+      return;
+    }
+    setHits(prev => ({ ...prev, [id]: res.hits }));
+  };
+
+  const resetSeen = async (id: number) => {
+    setBusy(`reset-${id}`);
+    const res = await resetWatchSeenAction(id);
+    setBusy('');
+    setRowMessage(prev => ({ ...prev, [id]: res.msg }));
+    if (res.ok) {
+      setHits(prev => ({ ...prev, [id]: [] }));
     }
   };
 
@@ -190,6 +223,28 @@ export const WatchCard = (props: {
                       </button>
                       <button
                         type="button"
+                        disabled={busy === `hits-${item.id}`}
+                        onClick={() => toggleHits(item.id)}
+                        className="
+                          rounded-sm border px-2 py-0.5
+                          hover:bg-muted
+                          disabled:opacity-50
+                        "
+                      >
+                        {hitsOpen === item.id ? '收起记录' : '命中记录'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditing(editing === item.id ? null : item.id)}
+                        className="
+                          rounded-sm border px-2 py-0.5
+                          hover:bg-muted
+                        "
+                      >
+                        {editing === item.id ? '收起编辑' : '编辑'}
+                      </button>
+                      <button
+                        type="button"
                         disabled={busy === `toggle-${item.id}`}
                         onClick={() => toggle(item)}
                         className="
@@ -225,6 +280,43 @@ export const WatchCard = (props: {
                       {rowMessage[item.id] || item.last_error}
                     </div>
                   )}
+
+                  {editing === item.id && (
+                    <EditForm
+                      watch={item}
+                      onDone={() => setEditing(null)}
+                      onReset={resetSeen}
+                      resetting={busy === `reset-${item.id}`}
+                    />
+                  )}
+
+                  {hitsOpen === item.id && (
+                    <div className="mt-2 border-t pt-2 text-[10px]">
+                      {(hits[item.id] ?? []).length
+                        ? (
+                            <ul className="flex flex-col gap-1">
+                              {(hits[item.id] ?? []).map(hit => (
+                                <li
+                                  key={hit.item_key}
+                                  className="
+                                    flex flex-wrap items-baseline gap-2
+                                  "
+                                >
+                                  <span className="font-medium">{hit.title}</span>
+                                  <span className="text-muted-foreground">{hit.detail}</span>
+                                  <span className="
+                                    ml-auto text-muted-foreground
+                                  "
+                                  >
+                                    {hit.first_seen}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )
+                        : <div className="text-muted-foreground">还没有命中记录</div>}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -233,3 +325,158 @@ export const WatchCard = (props: {
     </Card>
   );
 };
+
+/** 编辑监控条件与节奏。类型不可改，只能删除重建。 */
+function EditForm(props: {
+  watch: StoreWatch;
+  onDone: () => void;
+  onReset: (id: number) => void;
+  resetting: boolean;
+}) {
+  const kind = props.watch.kind;
+  const [keyword, setKeyword] = useState(props.watch.params.keyword ?? '');
+  const [promotionId, setPromotionId] = useState(props.watch.params.promotion_id ?? '');
+  const [lat, setLat] = useState(props.watch.params.lat ?? '');
+  const [lon, setLon] = useState(props.watch.params.lon ?? '');
+  const [cityCode, setCityCode] = useState(props.watch.params.city_code ?? '');
+  const [intervalSec, setIntervalSec] = useState(String(props.watch.interval_sec));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    const params: Record<string, string> = { lat, lon, city_code: cityCode };
+    if (keyword.trim()) {
+      params.keyword = keyword.trim();
+    }
+    if (promotionId.trim()) {
+      params.promotion_id = promotionId.trim();
+    }
+    setBusy(true);
+    const res = await updateWatchAction(props.watch.id, {
+      params,
+      interval_sec: Number(intervalSec || 0),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.msg);
+      return;
+    }
+    props.onDone();
+  };
+
+  return (
+    <div className="
+      mt-2 grid gap-2 border-t pt-2 text-xs
+      sm:grid-cols-2
+      lg:grid-cols-4
+    "
+    >
+      <div className="
+        text-[10px] text-muted-foreground
+        lg:col-span-4
+      "
+      >
+        {`类型「${KIND_LABEL[kind] ?? kind}」不可修改，需要换类型请删除后重建`}
+      </div>
+      {(kind === 'keyword' || kind === 'name') && (
+        <label className="flex flex-col gap-1 font-medium">
+          关键词
+          <Input
+            value={keyword}
+            onChange={event => setKeyword(event.target.value)}
+            className="h-8 text-xs"
+          />
+        </label>
+      )}
+      {kind === 'stock' && (
+        <label className="flex flex-col gap-1 font-medium">
+          活动 ID
+          <Input
+            value={promotionId}
+            onChange={event => setPromotionId(event.target.value)}
+            className="h-8 text-xs"
+          />
+        </label>
+      )}
+      <label className="flex flex-col gap-1 font-medium">
+        间隔（秒）
+        <Input
+          value={intervalSec}
+          type="number"
+          onChange={event => setIntervalSec(event.target.value)}
+          className="h-8 text-xs"
+        />
+      </label>
+      <label className="flex flex-col gap-1 font-medium">
+        纬度
+        <Input
+          value={lat}
+          onChange={event => setLat(event.target.value)}
+          className="h-8 text-xs"
+        />
+      </label>
+      <label className="flex flex-col gap-1 font-medium">
+        经度
+        <Input
+          value={lon}
+          onChange={event => setLon(event.target.value)}
+          className="h-8 text-xs"
+        />
+      </label>
+      <label className="flex flex-col gap-1 font-medium">
+        城市码
+        <Input
+          value={cityCode}
+          onChange={event => setCityCode(event.target.value)}
+          className="h-8 text-xs"
+        />
+      </label>
+      <div className="flex flex-wrap items-end gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={save}
+          className="
+            h-8 rounded-md bg-brand-gradient px-3 text-xs font-semibold
+            text-white
+            disabled:opacity-50
+          "
+        >
+          {busy ? '保存中…' : '保存'}
+        </button>
+        <button
+          type="button"
+          onClick={props.onDone}
+          className="
+            h-8 rounded-md border px-3 text-xs
+            hover:bg-muted
+          "
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          disabled={props.resetting}
+          onClick={() => props.onReset(props.watch.id)}
+          className="
+            h-8 rounded-md border px-3 text-xs
+            hover:bg-muted
+            disabled:opacity-50
+          "
+        >
+          {props.resetting ? '重置中…' : '重置去重'}
+        </button>
+      </div>
+      {error && (
+        <div className="
+          text-[10px] text-destructive
+          sm:col-span-2
+          lg:col-span-4
+        "
+        >
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}

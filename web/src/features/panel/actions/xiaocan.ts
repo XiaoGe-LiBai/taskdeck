@@ -269,9 +269,27 @@ export type XcOrder = {
   order_sn: string;
   platform_order_id: string;
   promotion_order_id: number;
-  created_time: string;
+  order_type: number;
+  rebate_ratio: number;
   note: string;
+  created_time: string;
+  updated_time: string | null;
+  settled_time: string | null;
 };
+
+/** 改订单字段或状态；状态变化会触发后端通知并自动补结算时间。 */
+export async function updateOrderAction(
+  orderId: number,
+  payload: Partial<Pick<XcOrder, 'status' | 'store_name' | 'order_money' | 'rebate_money' | 'note'>>,
+): Promise<{ ok: boolean; msg: string }> {
+  const resp = await panelSend<XcOrder>('PUT', `/xiaocan/orders/${orderId}`, payload);
+  if (!resp.ok || !resp.data) {
+    return { ok: false, msg: resp.msg || '修改失败' };
+  }
+  revalidatePath('/dashboard/assistant');
+  revalidatePath('/dashboard/history');
+  return { ok: true, msg: '' };
+}
 
 export async function createOrderAction(_prev: string, formData: FormData): Promise<string> {
   const payload: Record<string, unknown> = {
@@ -390,4 +408,50 @@ export async function runWatchAction(watchId: number): Promise<{ ok: boolean; ms
     return { ok: false, msg: resp.msg || '执行失败' };
   }
   return { ok: true, msg: `扫描 ${resp.data.scanned} 条，新增 ${resp.data.new.length} 条` };
+}
+
+export type WatchHit = {
+  item_key: string;
+  title: string;
+  detail: string;
+  first_seen: string;
+};
+
+/** 改监控条件与间隔；类型不可改，后端会拒绝并提示删除重建。 */
+export async function updateWatchAction(
+  watchId: number,
+  payload: { params?: StoreWatch['params']; interval_sec?: number },
+): Promise<{ ok: boolean; msg: string }> {
+  const resp = await panelSend<StoreWatch>('PUT', `/xiaocan/watch/${watchId}`, payload);
+  if (!resp.ok) {
+    return { ok: false, msg: resp.msg || '修改失败' };
+  }
+  revalidatePath('/dashboard/assistant');
+  return { ok: true, msg: '' };
+}
+
+/** 命中流水：错过的通知还能回看。 */
+export async function fetchWatchHitsAction(
+  watchId: number,
+): Promise<{ ok: boolean; msg: string; hits: WatchHit[] }> {
+  const resp = await panelSend<{ hits: WatchHit[] }>(
+    'GET',
+    `/xiaocan/watch/${watchId}/hits?limit=100`,
+  );
+  return {
+    ok: resp.ok,
+    msg: resp.ok ? '' : (resp.msg || '读取失败'),
+    hits: resp.ok ? (resp.data?.hits ?? []) : [],
+  };
+}
+
+export async function resetWatchSeenAction(
+  watchId: number,
+): Promise<{ ok: boolean; msg: string }> {
+  const resp = await panelSend<{ cleared: number }>('POST', `/xiaocan/watch/${watchId}/reset-seen`, {});
+  if (!resp.ok) {
+    return { ok: false, msg: resp.msg || '重置失败' };
+  }
+  revalidatePath('/dashboard/assistant');
+  return { ok: true, msg: `已清空 ${resp.data?.cleared ?? 0} 条去重记录，同样的条目会重新提醒` };
 }

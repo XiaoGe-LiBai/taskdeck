@@ -346,12 +346,30 @@ export type MyRedeemEvent = {
   updated_time: string | null;
 };
 
-export type MyHistoryEvent = MySignupEvent | MyRedeemEvent;
+export type MyOrderEvent = {
+  kind: 'order';
+  id: number;
+  account_id: number | null;
+  account_nickname: string;
+  store_name: string;
+  platform: string;
+  order_sn: string;
+  platform_order_id: string;
+  order_money: number;
+  rebate_money: number;
+  status: string;
+  created_time: string;
+  updated_time: string | null;
+  settled_time: string | null;
+};
+
+export type MyHistoryEvent = MySignupEvent | MyRedeemEvent | MyOrderEvent;
 
 export type MyHistory = {
   records: MyHistoryEvent[];
   signup_total: number;
   redeem_total: number;
+  order_total: number;
 };
 
 /* ---------------------------------------------------------------- 应用宝（YYB） */

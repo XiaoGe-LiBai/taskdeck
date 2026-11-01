@@ -10,6 +10,7 @@ import re
 from typing import Any
 
 import core
+import notify
 import xiaocan_methods as methods
 import xiaocan_stats as stats
 
@@ -18,6 +19,15 @@ EDITABLE = ("store_name", "platform", "order_money", "rebate_money", "status",
             "order_sn", "platform_order_id", "order_type", "rebate_ratio", "note")
 
 STATUSES = ("pending", "auditing", "completed", "rejected", "cancelled")
+# 钱到账、被拒、取消，都算这一单结束，进入这三态时补结算时间
+FINISHED_STATUSES = ("completed", "rejected", "cancelled")
+STATUS_LABEL_CN = {
+    "pending": "待提交",
+    "auditing": "审核中",
+    "completed": "已到账",
+    "rejected": "已拒绝",
+    "cancelled": "已取消",
+}
 
 
 def ensure_tables() -> None:
@@ -122,10 +132,26 @@ def update_order(order_id: int, payload: dict[str, Any], account_ids: list[int] 
     data = _clean(payload)
     if not data:
         return order
+    old_status = str(order.get("status") or "")
+    new_status = str(data.get("status") or old_status)
     data["updated_time"] = core.iso()
+    # 进入终态时补一个结算时间：只在原值为空时写，人工纠正过的时间一律保留
+    if new_status in FINISHED_STATUSES and not order.get("settled_time"):
+        data["settled_time"] = core.iso()
     sets = ",".join(f"{key}=?" for key in data)
     core.execute(f"UPDATE xc_orders SET {sets} WHERE id=?", (*data.values(), order_id))
+    # 只在状态真的变了才通知，否则每次编辑都会打扰一遍
+    if "status" in data and new_status != old_status:
+        notify.notify_async("霸王餐订单状态变化", _status_line(order, old_status, new_status))
     return get_order(order_id, account_ids) or {}
+
+
+def _status_line(order: dict, old: str, new: str) -> str:
+    """状态变化通知的一行文案，店铺名缺失时退回订单标识。"""
+    store = order.get("store_name") or f"订单#{order.get('id')}"
+    platform = order.get("platform") or "-"
+    return (f"{store}（{platform}）："
+            f"{STATUS_LABEL_CN.get(old, old or '未设置')} → {STATUS_LABEL_CN.get(new, new)}")
 
 
 def delete_order(order_id: int, account_ids: list[int] | None = None) -> bool:

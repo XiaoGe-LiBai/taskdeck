@@ -149,5 +149,45 @@ class UseFreeCardTests(Base):
         self.assertIn("没有可用的免单卡", str(caught.exception))
 
 
+class StatusFlowTests(Base):
+    def test_notify_only_when_status_changes(self) -> None:
+        order = self.make()
+        with mock.patch("notify.notify_async") as notify_call:
+            orders.update_order(order["id"], {"note": "改了备注"})
+            self.assertEqual(notify_call.call_count, 0, "只改备注不该打扰用户")
+            orders.update_order(order["id"], {"status": "pending"})
+            self.assertEqual(notify_call.call_count, 0, "状态没变也不算变化")
+            orders.update_order(order["id"], {"status": "completed"})
+        self.assertEqual(notify_call.call_count, 1)
+
+    def test_notification_uses_readable_labels(self) -> None:
+        order = self.make(store_name="测试披萨店")
+        with mock.patch("notify.notify_async") as notify_call:
+            orders.update_order(order["id"], {"status": "auditing"})
+        title, content = notify_call.call_args.args
+        self.assertIn("状态", title)
+        self.assertIn("测试披萨店", content)
+        self.assertIn("待提交 → 审核中", content)
+
+    def test_settled_time_filled_once_on_terminal_status(self) -> None:
+        order = self.make()
+        orders.update_order(order["id"], {"status": "completed"})
+        self.assertTrue(orders.get_order(order["id"])["settled_time"], "进终态应补结算时间")
+
+        other = self.make()
+        core.execute("UPDATE xc_orders SET settled_time=? WHERE id=?", ("2026-01-01T00:00:00+08:00", other["id"]))
+        orders.update_order(other["id"], {"status": "rejected"})
+        self.assertEqual(orders.get_order(other["id"])["settled_time"], "2026-01-01T00:00:00+08:00",
+                         "人工纠正过的结算时间不能被覆盖")
+
+    def test_submit_id_change_also_notifies(self) -> None:
+        """提交单号会把状态推进到审核中，同样该有一次通知。"""
+        order = self.make(order_sn="abc12345678")
+        with mock.patch.object(methods, "call", return_value={}), \
+             mock.patch("notify.notify_async") as notify_call:
+            orders.submit_platform_order_id(order["id"], "MT-1")
+        self.assertEqual(notify_call.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
