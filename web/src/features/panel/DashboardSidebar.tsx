@@ -157,8 +157,12 @@ export const DashboardSidebar = ({ badges, role, siteName, logoUrl }: Props) => 
         )}
       </div>
 
-      {/* 导航菜单容器，支持滚动 */}
-      <div className="flex-1 overflow-x-hidden overflow-y-auto py-1">
+      {/* 导航菜单容器，支持滚动；折叠态放开横向溢出，否则悬浮 tooltip 会被裁掉 */}
+      <div className={cn(
+        'flex-1 overflow-y-auto py-1',
+        collapsed ? 'overflow-x-visible' : 'overflow-x-hidden',
+      )}
+      >
         <PanelNav
           badges={badges}
           role={role}

@@ -14,6 +14,8 @@ const paths: Record<string, string> = {
   'accounts': 'M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7m7-1.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5M3 20c0-3.3 2.5-5.5 5.5-5.5S14 16.7 14 20m1-5.2c2.6.3 4.2 2.2 4.2 5.2',
 
   // 业务
+  'assistant': 'M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z',
+  'stores': 'M3 11l19-9-9 19-2-8-8-2z',
   'xiaocan': 'M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2zM9 9h.01M15 9h.01M9 15h.01M15 15h.01',
   'yyb': 'M4 4h16v5H4zM4 15h16v5H4zM9 6.5h6M9 17.5h6',
   'market': 'M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09zM12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z',
@@ -151,9 +153,8 @@ export const PanelNav = (props: {
                         shadow-orange-500/20
                       `
                       : `
-                        hover:bg-brand-soft/80
                         text-muted-foreground
-                        hover:text-foreground
+                        hover:bg-brand-soft hover:text-foreground
                       `,
                   )}
                 >

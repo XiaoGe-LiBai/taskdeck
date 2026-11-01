@@ -3,6 +3,7 @@ import type { PanelStats } from '@/types/Panel';
 import { redirect } from 'next/navigation';
 import { BrandMark } from '@/components/BrandMark';
 import { DotGrid, SwarmCursor } from '@/components/reactbits';
+import { Breadcrumb } from '@/features/panel/Breadcrumb';
 import { DashboardSidebar } from '@/features/panel/DashboardSidebar';
 import { DeniedNotice } from '@/features/panel/DeniedNotice';
 import { MobileNav } from '@/features/panel/MobileNav';
@@ -74,6 +75,7 @@ export default async function DashboardLayout(props: DashboardLayoutProps) {
               siteName={siteInfo.site_name}
               logoUrl={siteInfo.logo_url}
             />
+            <Breadcrumb />
             <div className="
               flex items-center gap-2
               lg:hidden

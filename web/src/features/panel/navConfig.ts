@@ -30,7 +30,11 @@ export type NavGroup = {
 };
 
 /**
- * 侧边栏分组：遵从参考站布局层级（概览、账号、业务、其他），管理员底部增补平台管理。
+ * 侧边栏分组：概览 / 业务工具 / 我的 / 平台管理（管理员）。
+ *
+ * 原来「业务」组塞了 6 项、「其他」组名不副实（其实是历史/消息/登录这些个人项），
+ * 导致找入口靠猜。重组后语义更直白：一线工作台（助手看板）上移到概览，
+ * 个人相关项统一进「我的」，业务工具只留真正的业务入口。
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
@@ -38,35 +42,29 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: '📊',
     items: [
       { key: 'dashboard', href: '/dashboard', label: '控制台', userOk: true },
-      { key: 'checkin', href: '/dashboard/checkin', label: '每日签到', userOk: true },
+      { key: 'assistant', href: '/dashboard/assistant', label: '助手看板', userOk: true },
     ],
   },
   {
-    label: '账号',
-    icon: '👥',
-    items: [
-      { key: 'accounts', href: '/dashboard/accounts', label: '账号管理', userOk: true },
-    ],
-  },
-  {
-    label: '业务',
+    label: '业务工具',
     icon: '💼',
     items: [
       { key: 'xiaocan', href: '/dashboard/xiaocan', label: '小蚕', userOk: true },
       { key: 'stores', href: '/dashboard/stores', label: '附近霸王餐', userOk: true },
-      { key: 'assistant', href: '/dashboard/assistant', label: '助手看板', userOk: true },
       { key: 'yyb', href: '/dashboard/yyb', label: '应用宝', userOk: true },
       { key: 'market', href: '/dashboard/market', label: '项目市场', aliases: ['/dashboard/submit'], userOk: true },
-      { key: 'profile', href: '/dashboard/profile', label: '会员中心', userOk: true },
     ],
   },
   {
-    label: '其他',
-    icon: '⚙️',
+    label: '我的',
+    icon: '👤',
     items: [
-      { key: 'history', href: '/dashboard/history', label: '报名/抢兑记录', userOk: true },
-      { key: 'login-logs', href: '/dashboard/login-logs', label: '登陆记录', userOk: true },
+      { key: 'accounts', href: '/dashboard/accounts', label: '账号管理', userOk: true },
+      { key: 'profile', href: '/dashboard/profile', label: '会员中心', userOk: true },
+      { key: 'checkin', href: '/dashboard/checkin', label: '每日签到', userOk: true },
+      { key: 'history', href: '/dashboard/history', label: '历史记录', userOk: true },
       { key: 'notifications', href: '/dashboard/notifications', label: '消息推送', userOk: true },
+      { key: 'login-logs', href: '/dashboard/login-logs', label: '登陆记录', userOk: true },
     ],
   },
   {
