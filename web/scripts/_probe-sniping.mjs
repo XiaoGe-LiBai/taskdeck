@@ -24,8 +24,11 @@ const grabButtons = await page.getByRole('button', { name: '立即抢单' }).cou
 // 参数抽屉位置
 const autoTitles = await page.locator('article h3').allInnerTexts();
 const card = page.locator('article').filter({ hasText: '整点红包雨' }).first();
+const cardCount = await card.count();
+const paramBtns = await card.getByRole('button', { name: '参数' }).count();
 await card.getByRole('button', { name: '参数' }).click();
-await page.waitForTimeout(800);
+await page.waitForTimeout(1200);
+const drawerCount = await page.getByTestId('param-drawer').count();
 const aside = page.getByTestId('param-drawer');
 const box = await aside.boundingBox();
 const vp = page.viewportSize();
@@ -35,5 +38,5 @@ await page.getByRole('button', { name: '关闭', exact: true }).click();
 await page.waitForTimeout(300);
 const closed = await page.getByTestId('param-drawer').count();
 
-console.log(JSON.stringify({ snipingTabs, grabButtons, drawer, fields, closed, errors }, null, 2));
+console.log(JSON.stringify({ autoTitles, cardCount, paramBtns, drawerCount, snipingTabs, grabButtons, drawer, fields, closed, errors }, null, 2));
 await browser.close();

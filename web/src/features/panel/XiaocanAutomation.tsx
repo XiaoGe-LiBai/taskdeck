@@ -250,6 +250,7 @@ const ParamDialog = (props: {
         "
       />
       <aside
+        data-testid="param-drawer"
         className="
           relative flex size-full max-w-md flex-col border-l bg-card shadow-2xl
           transition-transform duration-200 ease-out
