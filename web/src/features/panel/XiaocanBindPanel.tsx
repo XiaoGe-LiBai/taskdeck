@@ -116,7 +116,7 @@ export const XiaocanBindPanel = () => {
                   className="size-full object-contain"
                 />
               )
-            : <span className="px-3 text-center text-xs text-muted-foreground">未生成二维码</span>}
+            : <span className="px-3 text-center text-xs text-slate-500">未生成二维码</span>}
         </div>
         <button
           type="button"

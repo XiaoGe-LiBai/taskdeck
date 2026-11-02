@@ -208,6 +208,7 @@ export const XiaocanConsole = (props: {
         <div className="
           mb-3 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2
           text-xs text-amber-700
+          dark:border-amber-400/30 dark:bg-amber-400/15 dark:text-amber-300
         "
         >
           {errors[name]}

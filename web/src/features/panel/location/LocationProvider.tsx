@@ -112,9 +112,9 @@ export const LocationProvider = (props: { children: ReactNode }) => {
             type="button"
             onClick={value.open}
             className="
-              shrink-0 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-medium
-              text-white shadow-sm transition-opacity
-              hover:opacity-90
+              shrink-0 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold
+              text-amber-950 shadow-sm transition-colors
+              hover:bg-amber-400
             "
           >
             获取本机定位 / 搜索商圈
