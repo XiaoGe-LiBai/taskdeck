@@ -1,19 +1,23 @@
 'use client';
 
-import type { AutomationGroup, AutomationOverview, AutomationTask } from './actions/automation';
+import type { AutomationGroup, AutomationOverview, AutomationTask, ParamDef } from './actions/automation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { fetchAutomationAction, toggleAutomationTaskAction } from './actions/automation';
+import {
+  fetchAutomationAction,
+  getAutomationParamsAction,
+  saveAutomationParamsAction,
+  toggleAutomationTaskAction,
+} from './actions/automation';
 import { Card, Empty, Tag } from './Ui';
 
 /**
- * 自动化任务：按「秒杀抢券 / 日常任务 / 资产与提醒」三组卡片呈现。
+ * 自动化任务：按「秒杀抢券 / 日常任务 / 资产与提醒」三组折叠展示。
  *
- * 每张卡片显示该任务在哪些账号上开着（x/y），并可直接对**当前账号**开关。
- * 开关是幂等设置而不是翻转，避免重复渲染后界面与后端不一致。
- *
- * 不提供「立即执行」按钮：脚本由青龙按 cron 跑，这里没有同步执行的通道，
- * 放一个点了不生效的按钮只会更糟。
+ * 分组默认第一个展开、其余收起，避免一屏铺开十几张卡片。
+ * 只有带 `param_defs` 的任务才出现「参数」——脚本任务的参数在青龙脚本里写死，
+ * 给个存了不生效的表单比不给更糟。
  */
+
 const accountLabel = (
   accounts: Array<{ id: number; nickname: string; account_info: string }>,
   id: number,
@@ -53,10 +57,12 @@ const TaskCard = (props: {
   activeAccountId: number;
   pending: boolean;
   onToggle: (task: AutomationTask, enabled: boolean) => Promise<void>;
+  onOpenParams: (task: AutomationTask) => void;
 }) => {
   const enabled = props.task.enabled_account_ids.includes(props.activeAccountId);
   const allOn = props.task.account_count > 0
     && props.task.enabled_count === props.task.account_count;
+  const hasParams = props.task.param_defs.length > 0;
 
   return (
     <article className="
@@ -70,7 +76,7 @@ const TaskCard = (props: {
           <div className="mt-1 flex flex-wrap items-center gap-1">
             {props.task.vip && <Tag tone="warning">{props.task.vip}</Tag>}
             <Tag tone="info">{props.task.time_label}</Tag>
-            {props.task.kind === 'reminder' && <Tag tone="gray">提醒</Tag>}
+            <Tag tone="gray">{props.task.executor === 'script' ? '脚本' : '内置'}</Tag>
           </div>
         </div>
         <button
@@ -99,6 +105,19 @@ const TaskCard = (props: {
 
       <p className="text-xs/5 text-muted-foreground">{props.task.tip}</p>
 
+      {hasParams && (
+        <button
+          type="button"
+          onClick={() => props.onOpenParams(props.task)}
+          className="
+            self-start rounded-md border px-2 py-1 text-xs
+            hover:bg-muted
+          "
+        >
+          参数
+        </button>
+      )}
+
       <div className="mt-auto rounded-md border bg-muted/30 px-2.5 py-2">
         <div className="mb-1.5 flex items-center justify-between text-xs">
           <span className="text-muted-foreground">
@@ -124,7 +143,9 @@ const TaskCard = (props: {
             return (
               <span
                 key={account.id}
-                title={on ? `${account.nickname || account.account_info}：已开启` : `${account.nickname || account.account_info}：已关闭`}
+                title={on
+                  ? `${account.nickname || account.account_info}：已开启`
+                  : `${account.nickname || account.account_info}：已关闭`}
                 className={`
                   rounded-sm px-1.5 py-0.5 text-[11px]
                   ${on
@@ -151,36 +172,266 @@ const TaskCard = (props: {
     </article>
   );
 };
+
+/** 参数弹窗：字段完全由后端的 param_defs 决定，前端不硬编码任何任务参数。 */
+const ParamDialog = (props: {
+  task: AutomationTask;
+  accountId: number;
+  accountName: string;
+  onClose: () => void;
+  onSaved: (text: string) => void;
+}) => {
+  const [defs, setDefs] = useState<ParamDef[]>([]);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const result = await getAutomationParamsAction(props.accountId, props.task.key);
+      if (!alive) {
+        return;
+      }
+      setLoading(false);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setDefs(result.defs);
+      setValues(Object.fromEntries(
+        result.defs.map(item => [item.key, String(result.params[item.key] ?? item.def ?? '')]),
+      ));
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [props.accountId, props.task.key]);
+
+  const save = async () => {
+    setSaving(true);
+    setError('');
+    const payload: Record<string, string | number> = {};
+    for (const def of defs) {
+      const raw = values[def.key] ?? '';
+      payload[def.key] = def.type === 'int' ? Number(raw) : raw;
+    }
+    const result = await saveAutomationParamsAction(props.accountId, props.task.key, payload);
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    props.onSaved(`${props.task.label} 参数已保存`);
+    props.onClose();
+  };
+
+  return (
+    <div className="
+      fixed inset-0 z-50 flex items-start justify-center overflow-y-auto
+      bg-black/40 p-4 backdrop-blur-sm
+    "
+    >
+      <div className="mt-10 w-full max-w-xl rounded-lg border bg-card shadow-xl">
+        <div className="
+          flex items-start justify-between gap-4 border-b px-5 py-4
+        "
+        >
+          <div>
+            <h2 className="text-base font-semibold">
+              配置任务参数 ·
+              {props.task.label}
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              仅对账号「
+              {props.accountName}
+              」生效，不同账号可以各自设置
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={props.onClose}
+            className="
+              rounded-md border px-2 py-1 text-xs text-muted-foreground
+              hover:bg-muted
+            "
+          >
+            关闭
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-4 px-5 py-4">
+          <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
+            <span className="text-muted-foreground">任务说明：</span>
+            {props.task.tip}
+            <div className="mt-1 text-muted-foreground">
+              触发时间：
+              {props.task.time_label}
+            </div>
+          </div>
+
+          {loading && <div className="text-xs text-muted-foreground">读取中…</div>}
+          {error && (
+            <div className="
+              rounded-md border border-rose-500/20 bg-rose-500/10 px-3 py-2
+              text-xs text-rose-700
+              dark:border-rose-400/30 dark:bg-rose-400/15 dark:text-rose-300
+            "
+            >
+              {error}
+            </div>
+          )}
+
+          {!loading && defs.map((def) => {
+            const id = `param-${def.key}`;
+            return (
+              <label
+                key={def.key}
+                htmlFor={id}
+                className="flex flex-col gap-1 text-sm"
+              >
+                <span className="font-medium">{def.label}</span>
+                {def.type === 'select'
+                  ? (
+                      <select
+                        id={id}
+                        value={values[def.key] ?? ''}
+                        onChange={event => setValues(prev => ({ ...prev, [def.key]: event.target.value }))}
+                        className="
+                          h-9 rounded-md border bg-background px-2 text-sm
+                        "
+                      >
+                        {(def.options ?? []).map(option => (
+                          <option key={String(option.value)} value={String(option.value)}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    )
+                  : (
+                      <input
+                        id={id}
+                        type={def.type === 'int' ? 'number' : 'text'}
+                        min={def.min}
+                        max={def.max}
+                        value={values[def.key] ?? ''}
+                        onChange={event => setValues(prev => ({ ...prev, [def.key]: event.target.value }))}
+                        className="
+                          h-9 rounded-md border bg-background px-2 text-sm
+                        "
+                      />
+                    )}
+                {def.hint && <span className="text-xs text-muted-foreground">{def.hint}</span>}
+              </label>
+            );
+          })}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t px-5 py-3">
+          <button
+            type="button"
+            onClick={props.onClose}
+            className="
+              rounded-md border px-3 py-1.5 text-xs
+              hover:bg-muted
+            "
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={saving || loading}
+            className="
+              rounded-md bg-brand-gradient px-3 py-1.5 text-xs font-medium
+              text-white shadow-sm
+              disabled:opacity-50
+            "
+          >
+            {saving ? '保存中…' : '保存参数'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const GroupSection = (props: {
   group: AutomationGroup;
   accounts: Array<{ id: number; nickname: string; account_info: string }>;
   activeAccountId: number;
   pending: string;
+  defaultOpen: boolean;
   onToggle: (task: AutomationTask, enabled: boolean) => Promise<void>;
-}) => (
-  <Card
-    title={`${props.group.label}（${props.group.tasks.length}）`}
-    description={props.group.hint}
-  >
-    <div className="
-      grid gap-3
-      sm:grid-cols-2
-      xl:grid-cols-3
-    "
-    >
-      {props.group.tasks.map(task => (
-        <TaskCard
-          key={task.key}
-          task={task}
-          accounts={props.accounts}
-          activeAccountId={props.activeAccountId}
-          pending={props.pending === task.key}
-          onToggle={props.onToggle}
-        />
-      ))}
-    </div>
-  </Card>
-);
+  onOpenParams: (task: AutomationTask) => void;
+}) => {
+  const [open, setOpen] = useState(props.defaultOpen);
+  const enabledCount = props.group.tasks.filter(
+    task => task.enabled_account_ids.includes(props.activeAccountId),
+  ).length;
+
+  return (
+    <section className="rounded-lg border bg-card brand-shadow">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="
+          flex w-full items-center justify-between gap-3 px-4 py-3 text-left
+          hover:bg-muted/30
+        "
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-sm font-semibold">{props.group.label}</span>
+          <span className="text-xs text-muted-foreground">{`${props.group.tasks.length} 项`}</span>
+          <span className="
+            rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground
+          "
+          >
+            当前账号
+            {' '}
+            {enabledCount}
+            {' '}
+            /
+            {props.group.tasks.length}
+          </span>
+        </div>
+        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="
+            hidden
+            sm:inline
+          "
+          >
+            {props.group.hint}
+          </span>
+          <span aria-hidden>{open ? '收起 ▴' : '展开 ▾'}</span>
+        </span>
+      </button>
+
+      {open && (
+        <div className="
+          grid gap-3 border-t p-4
+          sm:grid-cols-2
+          xl:grid-cols-3
+        "
+        >
+          {props.group.tasks.map(task => (
+            <TaskCard
+              key={task.key}
+              task={task}
+              accounts={props.accounts}
+              activeAccountId={props.activeAccountId}
+              pending={props.pending === task.key}
+              onToggle={props.onToggle}
+              onOpenParams={props.onOpenParams}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+};
 
 export const XiaocanAutomation = (props: {
   accounts: Array<{ id: number; nickname: string; account_info: string }>;
@@ -189,6 +440,7 @@ export const XiaocanAutomation = (props: {
   const [activeId, setActiveId] = useState(props.accounts[0]?.id ?? 0);
   const [pending, setPending] = useState('');
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [editing, setEditing] = useState<AutomationTask | null>(null);
 
   const load = useCallback(async () => {
     const result = await fetchAutomationAction();
@@ -206,12 +458,10 @@ export const XiaocanAutomation = (props: {
   }, [load]);
 
   const accounts = data?.accounts ?? props.accounts;
-
   const activeAccountId = accounts.some(item => item.id === activeId)
     ? activeId
     : (accounts[0]?.id ?? 0);
 
-  /** 变更某个任务在某账号上的开关；乐观更新，失败回滚。 */
   const toggle = async (task: AutomationTask, enabled: boolean) => {
     const accountId = activeAccountId;
     if (!accountId) {
@@ -227,18 +477,19 @@ export const XiaocanAutomation = (props: {
       setMessage({ ok: false, text: `${task.label}：${result.error}` });
       return;
     }
-    setMessage({ ok: true, text: `${task.label} 已在「${accountLabel(accounts, accountId)}」上${enabled ? '开启' : '关闭'}` });
+    setMessage({
+      ok: true,
+      text: `${task.label} 已在「${accountLabel(accounts, accountId)}」上${enabled ? '开启' : '关闭'}`,
+    });
   };
 
   const groups = data?.groups ?? [];
-  const totals = useMemo(() => {
-    return groups.map(group => ({
-      key: group.key,
-      label: group.label,
-      enabled: group.tasks.filter(task => task.enabled_account_ids.includes(activeAccountId)).length,
-      total: group.tasks.length,
-    }));
-  }, [groups, activeAccountId]);
+  const totals = useMemo(() => groups.map(group => ({
+    key: group.key,
+    label: group.label,
+    enabled: group.tasks.filter(task => task.enabled_account_ids.includes(activeAccountId)).length,
+    total: group.tasks.length,
+  })), [groups, activeAccountId]);
 
   if (!props.accounts.length && !data) {
     return (
@@ -252,7 +503,7 @@ export const XiaocanAutomation = (props: {
     <div className="flex flex-col gap-4">
       <Card
         title="自动化任务"
-        description="多账号独立开关，定时任务在绑定成功后自动排期；改动即时生效"
+        description="多账号独立开关；脚本任务交给青龙按 cron 跑，内置任务由本服务按时段执行"
         actions={(
           <label className="
             flex items-center gap-2 text-xs text-muted-foreground
@@ -317,16 +568,31 @@ export const XiaocanAutomation = (props: {
         )}
       </Card>
 
-      {groups.map(group => (
+      {groups.map((group, index) => (
         <GroupSection
           key={group.key}
           group={group}
           accounts={accounts}
           activeAccountId={activeAccountId}
           pending={pending}
+          defaultOpen={index === 0}
           onToggle={toggle}
+          onOpenParams={setEditing}
         />
       ))}
+
+      {editing && activeAccountId > 0 && (
+        <ParamDialog
+          task={editing}
+          accountId={activeAccountId}
+          accountName={accountLabel(accounts, activeAccountId)}
+          onClose={() => setEditing(null)}
+          onSaved={(text) => {
+            setMessage({ ok: true, text });
+            void load();
+          }}
+        />
+      )}
     </div>
   );
 };

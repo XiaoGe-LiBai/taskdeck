@@ -1373,6 +1373,38 @@ def xiaocan_automation_toggle(account_id: int, task_key: str):
     return core.ok(result)
 
 
+@bp.get("/xiaocan/accounts/<int:account_id>/automation/<task_key>/params")
+@core.require_login
+def xiaocan_automation_params_get(account_id: int, task_key: str):
+    account = _own_account(account_id)
+    if not account:
+        return core.fail("账号不存在")
+    if task_key not in xiaocan_automation.BY_KEY:
+        return core.fail("未知任务")
+    task = xiaocan_automation.BY_KEY[task_key]
+    return core.ok({
+        "params": xiaocan_automation.task_params(account_id, task_key),
+        "param_defs": task.get("param_defs") or [],
+    })
+
+
+@bp.put("/xiaocan/accounts/<int:account_id>/automation/<task_key>/params")
+@core.require_login
+def xiaocan_automation_params_put(account_id: int, task_key: str):
+    account = _own_account(account_id)
+    if not account:
+        return core.fail("账号不存在")
+    body = request.get_json(silent=True) or {}
+    params = body.get("params")
+    if not isinstance(params, dict):
+        return core.fail("params 必须是对象")
+    try:
+        saved = xiaocan_automation.set_params(account_id, task_key, params)
+    except ValueError as exc:
+        return core.fail(str(exc))
+    return core.ok({"params": saved})
+
+
 # ------------------------------------------------------------ 电脑微信直连提 token
 #
 # 服务端跑在 Linux 容器时读不到用户 Windows 上的微信进程，所以走「配对码 + 一次性脚本」：

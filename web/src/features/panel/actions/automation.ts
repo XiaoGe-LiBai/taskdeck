@@ -12,8 +12,11 @@ export type AutomationTask = {
   tip: string;
   vip: string;
   time_label: string;
-  kind: 'script' | 'reminder';
+  /** script=青龙脚本按 cron 跑；builtin=本服务按时段执行 */
+  executor: 'script' | 'builtin';
   script: string;
+  /** 只有真会用这些参数的任务才有定义 */
+  param_defs: ParamDef[];
   enabled_account_ids: number[];
   enabled_count: number;
   account_count: number;
@@ -56,4 +59,47 @@ export async function toggleAutomationTaskAction(
     return { ok: false, error: resp.msg || '保存失败' };
   }
   return { ok: true, enabled: Boolean(resp.data.enabled) };
+}
+
+export type ParamOption = { label: string; value: string | number };
+
+export type ParamDef = {
+  key: string;
+  label: string;
+  type: 'int' | 'text' | 'select';
+  def: string | number;
+  min?: number;
+  max?: number;
+  options?: ParamOption[];
+  hint?: string;
+};
+
+export async function getAutomationParamsAction(
+  accountId: number,
+  taskKey: string,
+): Promise<{ ok: true; params: Record<string, string | number>; defs: ParamDef[] } | { ok: false; error: string }> {
+  const resp = await panelSend<{ params: Record<string, string | number>; param_defs: ParamDef[] }>(
+    'GET',
+    `/xiaocan/accounts/${accountId}/automation/${encodeURIComponent(taskKey)}/params`,
+  );
+  if (!resp.ok || !resp.data) {
+    return { ok: false, error: resp.msg || '读取参数失败' };
+  }
+  return { ok: true, params: resp.data.params ?? {}, defs: resp.data.param_defs ?? [] };
+}
+
+export async function saveAutomationParamsAction(
+  accountId: number,
+  taskKey: string,
+  params: Record<string, string | number>,
+): Promise<{ ok: true; params: Record<string, string | number> } | { ok: false; error: string }> {
+  const resp = await panelSend<{ params: Record<string, string | number> }>(
+    'PUT',
+    `/xiaocan/accounts/${accountId}/automation/${encodeURIComponent(taskKey)}/params`,
+    { params },
+  );
+  if (!resp.ok || !resp.data) {
+    return { ok: false, error: resp.msg || '保存失败' };
+  }
+  return { ok: true, params: resp.data.params ?? {} };
 }

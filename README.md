@@ -174,11 +174,17 @@ GET /api/xiaocan/accounts/<id>/stores/explore?lat=&lon=&city_code=
 面板「小蚕」页第一块。按三组卡片呈现，每张卡片显示该任务在哪些账号上开着（x/y），
 并可直接对当前账号开关；开关是**幂等设置**，不是翻转。
 
-| 分组 | 项 | 执行方式 |
-|---|---|---|
-| 秒杀抢券（6） | 限量大牌、保底大牌、SVIP 返利券、影音 VIP、免单券、整点红包雨 | 青龙脚本按 cron 跑 |
-| 日常任务（4） | 每日签到、领取元宝、元宝抽奖、双节抽礼 | 青龙脚本按 cron 跑 |
-| 资产与提醒（2） | 凭据到期预警、卡券到期提醒 | 本服务后台线程每天各跑一次 |
+三组**默认只展开第一组**，其余点开再看，避免一屏铺开十几张卡片。
+
+| 分组 | 项 | 执行方式 | 可配参数 |
+|---|---|---|---|
+| 秒杀抢券（6） | 限量大牌、保底大牌、SVIP 返利券、影音 VIP、免单券、整点红包雨 | 青龙脚本按 cron 跑 | 无（参数在脚本内） |
+| 日常任务（7） | 每日签到、领取元宝任务、双节抽礼（脚本）；领天天赚元宝、会员每日签到、收取未收元宝、免费开红包与抽奖（内置） | 脚本 + 内置 | 开红包间隔 |
+| 资产与提醒（3） | 凭据/JWT 到期预警、卡券/红包到期提醒、美团同店双返利监控 | 内置 | 提前天数、巡检间隔、扫描上限、关键词 |
+
+**参数只出现在「真会用这些参数」的任务上**：脚本任务的参数写死在青龙脚本里，
+给个存了不生效的表单比不给更糟。内置任务由 `server/xiaocan_builtin.py` 执行，
+参数从 `automation_params` 表读取后直接进执行器（例如巡检间隔会决定当天排几个时段）。
 
 - 脚本任务的开关复用 `account_features`（与「账号管理」的任务开关同一份数据，不会两处不一致）；
 - 提醒任务的开关单独存 `automation_flags`，不混进 `coupon_types`，避免污染任务派发；
@@ -186,8 +192,10 @@ GET /api/xiaocan/accounts/<id>/stores/explore?lat=&lon=&city_code=
   卡券提醒每账号一次网关请求、串行间隔 1.5s，失败只写日志不影响线程。
 
 ```
-GET /api/xiaocan/automation                          分组 + 每任务账号开关 + 计数
-PUT /api/xiaocan/accounts/<id>/automation/<task_key>  {"enabled": true}
+GET /api/xiaocan/automation                                   分组 + 每任务开关 + 参数定义 + 计数
+PUT /api/xiaocan/accounts/<id>/automation/<task_key>          {"enabled": true}
+GET /api/xiaocan/accounts/<id>/automation/<task_key>/params   当前参数（含默认值）
+PUT /api/xiaocan/accounts/<id>/automation/<task_key>/params   {"params": {...}}（按定义校验类型与范围）
 ```
 
 > 刻意**不收录**开源版有、我们还没有执行路径的项：元宝秒杀抢券、美团神券定时、

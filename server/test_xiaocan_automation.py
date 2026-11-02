@@ -24,10 +24,22 @@ class CatalogTests(unittest.TestCase):
 
     def test_script_tasks_have_feature_and_script(self) -> None:
         for task in auto.TASKS:
-            if task.get("kind") == "reminder":
+            if task["executor"] != "script":
                 continue
             self.assertTrue(task.get("feature"), task["key"])
             self.assertTrue(task.get("script", "").endswith(".py"), task["key"])
+
+    def test_builtin_tasks_have_daily_at(self) -> None:
+        for task in auto.TASKS:
+            if task["executor"] != "builtin":
+                continue
+            self.assertTrue(task.get("daily_at"), task["key"])
+
+    def test_param_defs_only_on_builtin(self) -> None:
+        """脚本任务的参数在脚本里写死，给表单就是假的。"""
+        for task in auto.TASKS:
+            if task.get("param_defs"):
+                self.assertEqual(task["executor"], "builtin", task["key"])
 
     def test_reminder_tasks_have_daily_at(self) -> None:
         for task in auto.TASKS:
@@ -61,7 +73,7 @@ class ToggleRoutingTests(unittest.TestCase):
         with mock.patch.object(auto, "set_reminder") as set_reminder:
             out = auto.set_task(account, "credential_remind", True)
         set_reminder.assert_called_once_with(3, "credential_remind", True)
-        self.assertEqual(out["store"], "reminders")
+        self.assertEqual(out["store"], "builtin")
 
     def test_set_task_rejects_unknown(self) -> None:
         with self.assertRaises(ValueError):
@@ -111,3 +123,33 @@ class OverviewTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ParamTests(unittest.TestCase):
+    def test_defaults_from_defs(self) -> None:
+        task = auto.BY_KEY["dual_rebate"]
+        self.assertEqual(auto.default_params(task), {
+            "interval_minutes": 60, "scan_limit": 300, "keyword": "",
+        })
+
+    def test_slots_follow_interval_param(self) -> None:
+        task = auto.BY_KEY["dual_rebate"]
+        hourly = auto._slots_of(task, {"interval_minutes": 60})
+        self.assertEqual(hourly[:3], ["09:00", "10:00", "11:00"])
+        self.assertEqual(hourly[-1], "23:00")
+        half = auto._slots_of(task, {"interval_minutes": 30})
+        self.assertIn("09:30", half)
+        self.assertGreater(len(half), len(hourly))
+
+    def test_single_daily_task_has_one_slot(self) -> None:
+        task = auto.BY_KEY["vip_sign"]
+        self.assertEqual(auto._slots_of(task, {}), ["08:30"])
+
+    def test_due_slot_window(self) -> None:
+        from datetime import datetime
+        with mock.patch.object(auto.core, "get_setting", return_value=""):
+            self.assertTrue(auto._due_slot("vip_sign", 1, "08:30", datetime(2026, 11, 2, 8, 35)))
+            self.assertFalse(auto._due_slot("vip_sign", 1, "08:30", datetime(2026, 11, 2, 8, 45)))
+            self.assertFalse(auto._due_slot("vip_sign", 1, "08:30", datetime(2026, 11, 2, 8, 29)))
+        with mock.patch.object(auto.core, "get_setting", return_value="2026-11-02 08:30"):
+            self.assertFalse(auto._due_slot("vip_sign", 1, "08:30", datetime(2026, 11, 2, 8, 31)))
