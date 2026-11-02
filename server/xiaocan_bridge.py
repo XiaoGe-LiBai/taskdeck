@@ -104,6 +104,21 @@ def account_features(account_id: int) -> dict:
     return {name: bool(stored.get(name, False)) for name in feature_names()}
 
 
+def set_feature(account_id: int, name: str, enabled: bool) -> bool:
+    """把某个任务开关**设成**给定值（幂等）。
+
+    `toggle_feature` 是翻转语义，给「点一下换个状态」的按钮用；
+    自动化任务卡片是明确的开关控件，重复渲染后翻转会跟界面不一致，所以另给一个设置接口。
+    """
+    value = 1 if enabled else 0
+    core.execute(
+        "INSERT INTO account_features (account_id, feature_name, enabled) VALUES (?,?,?) "
+        "ON CONFLICT(account_id, feature_name) DO UPDATE SET enabled=excluded.enabled",
+        (account_id, name, value),
+    )
+    return bool(value)
+
+
 def toggle_feature(account_id: int, name: str) -> bool:
     row = core.query_one(
         "SELECT enabled FROM account_features WHERE account_id=? AND feature_name=?", (account_id, name)

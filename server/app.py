@@ -60,6 +60,10 @@ def create_app() -> Flask:
     import store_watch
     store_watch.start_daemon()
 
+    # 自动化任务里的提醒类（凭据到期 / 卡券到期）每天各跑一次
+    import xiaocan_automation
+    xiaocan_automation.start_daemon()
+
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(projects_bp, url_prefix="/api")
     app.register_blueprint(user_bp, url_prefix="/api")

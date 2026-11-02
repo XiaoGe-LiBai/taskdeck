@@ -15,6 +15,7 @@ import vip
 import meituan_runner
 import time_service
 import xiaocan_actions
+import xiaocan_automation
 import xiaocan_console
 import xiaocan_extras
 import xiaocan_orders
@@ -1324,6 +1325,52 @@ WRITE_ACTIONS = {
     "cancel_promotion_quota", "grab_brand_card", "grab_free_order_quota", "use_free_order_card",
     "grab_rebate_card_quota", "exchange_goods", "draw_page_gift", "set_all_messages_read",
 }
+
+
+# ------------------------------------------------------------ 自动化任务
+#
+# 卡片式呈现（秒杀 / 日常 / 资产提醒三组），开关按任务定义分别落到
+# account_features（脚本任务）与 automation_flags（提醒任务）。
+
+
+def _visible_accounts() -> list[dict]:
+    """当前用户可见的账号（管理员看全部）。卡片里的「账号启用 x/y」按这个集合算。"""
+    user = core.current_user()
+    if user.get("role") == "admin":
+        rows = core.query("SELECT * FROM accounts ORDER BY id")
+    else:
+        rows = core.query("SELECT * FROM accounts WHERE user_id=? ORDER BY id", (user["id"],))
+    accounts = []
+    for row in rows:
+        account = dict(row)
+        account["features"] = xc.account_features(account["id"])
+        accounts.append(account)
+    return accounts
+
+
+@bp.get("/xiaocan/automation")
+@core.require_login
+def xiaocan_automation_overview():
+    """自动化任务目录 + 每账号开关状态。"""
+    return core.ok(xiaocan_automation.overview(_visible_accounts()))
+
+
+@bp.put("/xiaocan/accounts/<int:account_id>/automation/<task_key>")
+@core.require_login
+def xiaocan_automation_toggle(account_id: int, task_key: str):
+    account = _own_account(account_id)
+    if not account:
+        return core.fail("账号不存在")
+    body = request.get_json(silent=True) or {}
+    if "enabled" not in body:
+        return core.fail("缺少 enabled")
+    try:
+        result = xiaocan_automation.set_task(account, task_key, bool(body["enabled"]))
+    except ValueError as exc:
+        return core.fail(str(exc))
+    except Exception as exc:
+        return core.fail(f"保存失败：{exc}")
+    return core.ok(result)
 
 
 # ------------------------------------------------------------ 电脑微信直连提 token
