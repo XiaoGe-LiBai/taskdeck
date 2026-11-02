@@ -766,6 +766,7 @@ export const XiaocanConsole = (props: {
                         </div>
                         <span className="
                           shrink-0 text-base font-semibold text-red-600
+                          dark:text-red-400
                         "
                         >
                           {fen(redpack.value_num)}
