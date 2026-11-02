@@ -43,7 +43,13 @@ _BODIES: dict[str, dict[str, Any]] = {
 }
 
 # 需要显式 user_id 的接口（ActivityTask 系列）
-_NEED_USER_ID = ("get_daily_tasks", "user_claim_points", "get_unreceived_point_records")
+# SignInHistory 也必须带：上游会校验 UserId > 0，缺了直接报 [10001] invalid field UserId
+_NEED_USER_ID = (
+    "get_daily_tasks",
+    "user_claim_points",
+    "get_unreceived_point_records",
+    "get_sign_in_history",
+)
 
 
 def _num(value: Any, default: int = 0) -> int:
@@ -236,7 +242,7 @@ def _normalize_profile(res: dict) -> dict:
     info = _dict(res.get("user_info"))
     vip = _dict(info.get("vip_level_info"))
     return {
-        "nickname": str(info.get("nickname") or ""),
+        "nickname": str(info.get("nickname") or "").strip(),
         "avatar": str(info.get("avatar") or ""),
         "silk": _num(info.get("silk")),
         "withdrawing": _num(info.get("withdrawing")),
@@ -336,7 +342,11 @@ def overview(
         try:
             return name, _section_reader(name, city_code)(account), ""
         except Exception as exc:  # 单段失败不影响其它段
-            return name, None, str(exc)
+            message = str(exc)
+            if name == "rain" and "参数错误" in message:
+                # 上游这个接口改了参数，未抓包前不猜参数；明确告诉用户别当成自己的账号问题
+                message = f"红包雨状态查询被上游拒绝（接口参数已变更）：{message}"
+            return name, None, message
 
     with ThreadPoolExecutor(max_workers=3) as pool:
         for name, value, error in pool.map(run, picked):

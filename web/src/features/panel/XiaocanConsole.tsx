@@ -229,7 +229,7 @@ export const XiaocanConsole = (props: {
             >
               {props.accounts.map(account => (
                 <option key={account.id} value={account.id}>
-                  {account.nickname || account.account_info}
+                  {account.nickname?.trim() || account.account_info}
                 </option>
               ))}
             </select>
@@ -289,7 +289,7 @@ export const XiaocanConsole = (props: {
           <div className="flex flex-col gap-1 text-xs text-muted-foreground">
             账号昵称
             <span className="h-8 text-sm text-foreground">
-              {profile?.nickname || '—'}
+              {profile?.nickname?.trim() || '—'}
             </span>
           </div>
           <div className="flex flex-col gap-1 text-xs text-muted-foreground">

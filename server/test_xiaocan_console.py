@@ -116,6 +116,20 @@ class OverviewTests(unittest.TestCase):
         self.assertIn("assets", out["errors"])
         self.assertNotIn("profile", out["errors"])
 
+    def test_sign_in_history_carries_user_id(self) -> None:
+        """上游对 SignInHistory 校验 UserId>0，缺了会报 [10001] invalid field UserId。"""
+        calls: list[tuple[str, dict]] = []
+
+        def call(_account, key, body=None, **_kwargs):
+            calls.append((key, dict(body or {})))
+            return {}
+
+        with mock.patch.object(methods, "call", side_effect=call):
+            console.overview(ACCOUNT, ("signin",))
+
+        keys = {key: body for key, body in calls}
+        self.assertEqual(keys["get_sign_in_history"]["user_id"], 8002)
+
     def test_user_id_injected_only_for_activity_task(self) -> None:
         calls: list[tuple[str, dict]] = []
 
