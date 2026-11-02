@@ -82,9 +82,86 @@ const isBrand = (item: StoreItem) => {
   return String(flag ?? '') === 'true' || String(flag ?? '') === '1';
 };
 
-const leftText = (item: StoreItem) => {
+
+/** 上游把店铺信息放在 store 子对象里，顶层只有活动字段。 */
+const shopOf = (item: StoreItem): Record<string, unknown> => {
+  const shop = item.store;
+  return shop && typeof shop === 'object' ? shop as Record<string, unknown> : {};
+};
+
+const shopIcon = (item: StoreItem) => {
+  const icon = shopOf(item).icon;
+  return typeof icon === 'string' ? icon : '';
+};
+
+const shopAddress = (item: StoreItem) => {
+  const address = shopOf(item).address;
+  return typeof address === 'string' ? address : '';
+};
+
+const shopHours = (item: StoreItem) => {
+  const hours = shopOf(item).opening_hours;
+  return typeof hours === 'string' && hours.trim() ? hours : '';
+};
+
+const shopCategory = (item: StoreItem) => {
+  const category = item.xc_category ?? shopOf(item).category;
+  return typeof category === 'string' ? category : '';
+};
+
+/** 满 X 返 Y：上游以分计价 */
+const conditionText = (item: StoreItem) => {
+  const money = Number(item.order_money ?? 0);
+  const rebate = Number(item.user_rebate ?? item.rebate_price ?? 0);
+  if (money > 0 && rebate > 0) {
+    return `满 ${(money / 100).toFixed(0)} 返 ${(rebate / 100).toFixed(0)}`;
+  }
+  return '';
+};
+
+const leftCount = (item: StoreItem) => {
   const left = item.left_number ?? item.left_num;
-  return typeof left === 'number' ? `剩余名额 ${left}` : '';
+  return typeof left === 'number' ? left : 0;
+};
+
+const canUseRedpack = (item: StoreItem) => Boolean(item.if_use_red_pack);
+
+const canAdvance = (item: StoreItem) => {
+  const info = shopOf(item).store_info as Record<string, unknown> | undefined;
+  return Boolean(info?.if_advance ?? item.if_advance);
+};
+
+/** 服务费 / 每日限单这些限制写在 store.store_info.store_limit 里 */
+const limitText = (item: StoreItem) => {
+  const info = shopOf(item).store_info as Record<string, unknown> | undefined;
+  const limit = info?.store_limit as Record<string, unknown> | undefined;
+  if (!limit) {
+    return '';
+  }
+  const parts: string[] = [];
+  const fee = Number(limit.service_charge ?? 0);
+  if (fee > 0) {
+    parts.push(`服务费 ¥${(fee / 100).toFixed(2)}`);
+  }
+  const days = Number(limit.days_limit ?? 0);
+  if (days > 0) {
+    parts.push(`${days} 天内限 ${Number(limit.days_order_limit ?? 1)} 单`);
+  }
+  return parts.join(' · ');
+};
+
+/** 抢单窗口状态：未开始可预约、进行中可抢、已结束只能看 */
+const windowState = (item: StoreItem): 'before' | 'active' | 'after' => {
+  const now = Math.floor(Date.now() / 1000);
+  const start = Number(item.start_timestamp ?? 0);
+  const end = Number(item.end_timestamp ?? 0);
+  if (start > 0 && now < start) {
+    return 'before';
+  }
+  if (end > 0 && now > end) {
+    return 'after';
+  }
+  return 'active';
 };
 
 export const XiaocanSniping = (props: {
@@ -212,42 +289,125 @@ export const XiaocanSniping = (props: {
   const renderStoreRow = (item: StoreItem, index: number) => {
     const id = promoId(item);
     const busy = pending === `grab-${id}`;
+    const icon = shopIcon(item);
+    const left = leftCount(item);
+    const state = windowState(item);
+    const soldOut = left <= 0;
     return (
       <div
         key={`${storeName(item)}-${id || index}`}
         className="
-          flex flex-wrap items-center justify-between gap-2 rounded-lg border
-          p-3
+          flex items-start gap-3 rounded-lg border p-3 transition-colors
+          hover:border-primary/40
         "
       >
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
+        <div className="
+          flex size-10 shrink-0 items-center justify-center overflow-hidden
+          rounded-lg bg-muted text-sm font-semibold text-muted-foreground
+        "
+        >
+          {icon
+            ? <img src={icon} alt="" className="size-full object-cover" loading="lazy" />
+            : storeName(item).slice(0, 1)}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Tag tone="info">美团外卖</Tag>
             <span className="truncate text-sm font-medium">{storeName(item)}</span>
-            {isBrand(item) && <Tag tone="primary">大牌券</Tag>}
+            {isBrand(item) && <Tag tone="warning">大牌券</Tag>}
+            {Boolean(item.if_repurchase_promotion) && <Tag tone="gray">可复购</Tag>}
           </div>
-          <div className="
-            mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground
-          "
-          >
-            {storeDistance(item) && <span>{storeDistance(item)}</span>}
-            {storeRebate(item) && <Tag tone="warning">{storeRebate(item)}</Tag>}
-            {leftText(item) && <span>{leftText(item)}</span>}
+
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+            {conditionText(item) && <Tag tone="warning">{conditionText(item)}</Tag>}
+            <span className="text-muted-foreground">
+              {storeDistance(item) || '附近'}
+            </span>
+            {canUseRedpack(item) && <Tag tone="danger">可用红包</Tag>}
+            {canAdvance(item) && <Tag tone="info">支持超前抢</Tag>}
+            {shopCategory(item) && (
+              <span className="text-muted-foreground">{shopCategory(item)}</span>
+            )}
+          </div>
+
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+            <Tag tone={soldOut ? 'gray' : 'info'}>
+              {soldOut ? '已领完' : `实付剩 ${left} 单`}
+            </Tag>
+            {limitText(item) && (
+              <span className="text-muted-foreground">{limitText(item)}</span>
+            )}
+          </div>
+
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            {`门店营业: ${shopHours(item) || '00:00-23:59'}`}
+          </div>
+          <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+            {`地址: ${shopAddress(item) || '依据外卖平台定位'}`}
           </div>
         </div>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void grab(id)}
-          className="
-            rounded-md bg-brand-gradient px-3 py-1.5 text-xs font-medium
-            text-white shadow-sm transition-all duration-150
-            hover:opacity-95
-            active:scale-95
-            disabled:opacity-50
-          "
-        >
-          {busy ? '抢单中…' : '立即抢单'}
-        </button>
+
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {state === 'active' && !soldOut && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void grab(id)}
+              className="
+                rounded-md bg-brand-gradient px-3 py-1.5 text-xs font-medium
+                text-white shadow-sm transition-all duration-150
+                hover:opacity-95
+                active:scale-95
+                disabled:opacity-50
+              "
+            >
+              {busy ? '抢单中…' : '抢单'}
+            </button>
+          )}
+          {state === 'active' && soldOut && (
+            <button
+              type="button"
+              disabled
+              className="
+                rounded-md border px-3 py-1.5 text-xs text-muted-foreground
+                opacity-60
+              "
+            >
+              已领完
+            </button>
+          )}
+          {state === 'before' && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void grab(id)}
+              className="
+                rounded-md border border-primary/40 px-3 py-1.5 text-xs
+                font-medium text-primary transition-colors
+                hover:bg-primary/10
+                disabled:opacity-50
+              "
+            >
+              {busy ? '提交中…' : '预约'}
+            </button>
+          )}
+          {state === 'after' && (
+            <button
+              type="button"
+              disabled
+              className="
+                rounded-md border px-3 py-1.5 text-xs text-muted-foreground
+                opacity-60
+              "
+            >
+              已过时
+            </button>
+          )}
+          <span className="text-[11px] text-muted-foreground">
+            {state === 'before' ? '未开始' : (state === 'active' ? '进行中' : '已结束')}
+          </span>
+        </div>
       </div>
     );
   };
@@ -375,32 +535,49 @@ export const XiaocanSniping = (props: {
                   </Tag>
                 </div>
                 <div className="mt-2 flex flex-col gap-2">
-                  {store.items.map((item, index) => (
-                    <div
-                      key={`${store.name}-${promoId(item)}-${index}`}
-                      className="
-                        flex items-center justify-between gap-2 rounded-md
-                        bg-muted/40 px-2 py-1.5
-                      "
-                    >
-                      <span className="text-xs text-muted-foreground">
-                        {storeRebate(item) || '返利未知'}
-                        {leftText(item) ? ` · ${leftText(item)}` : ''}
-                      </span>
-                      <button
-                        type="button"
-                        disabled={pending === `grab-${promoId(item)}`}
-                        onClick={() => void grab(promoId(item))}
+                  {store.items.map((item, index) => {
+                    const left = leftCount(item);
+                    const state = windowState(item);
+                    return (
+                      <div
+                        key={`${store.name}-${promoId(item)}-${index}`}
                         className="
-                          rounded-md border px-2 py-1 text-xs
-                          hover:bg-muted
-                          disabled:opacity-50
+                          flex flex-wrap items-center justify-between gap-2
+                          rounded-md bg-muted/40 px-2 py-1.5
                         "
                       >
-                        抢这个方案
-                      </button>
-                    </div>
-                  ))}
+                        <div className="
+                          flex flex-wrap items-center gap-1.5 text-xs
+                        "
+                        >
+                          <Tag tone="warning">{conditionText(item) || storeRebate(item) || '返利未知'}</Tag>
+                          <Tag tone={left > 0 ? 'info' : 'gray'}>
+                            {left > 0 ? `余 ${left} 份` : '已领完'}
+                          </Tag>
+                          {canUseRedpack(item) && <Tag tone="danger">可用红包</Tag>}
+                          {canAdvance(item) && <Tag tone="info">支持超前抢</Tag>}
+                          <span className="text-muted-foreground">
+                            {storeDistance(item) || '附近'}
+                          </span>
+                          {shopHours(item) && (
+                            <span className="text-muted-foreground">{shopHours(item)}</span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={pending === `grab-${promoId(item)}` || state === 'after' || left <= 0}
+                          onClick={() => void grab(promoId(item))}
+                          className="
+                            rounded-md border px-2 py-1 text-xs
+                            hover:bg-muted
+                            disabled:opacity-50
+                          "
+                        >
+                          {state === 'before' ? '预约' : (left > 0 ? '抢这个方案' : '已领完')}
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))
@@ -426,7 +603,7 @@ export const XiaocanSniping = (props: {
                     {job.status ? ` · ${job.status}` : ''}
                   </div>
                 </div>
-                <Tag tone="primary">{job.status || '排队中'}</Tag>
+                <Tag tone="info">{job.status || '排队中'}</Tag>
               </div>
             ))
           : <Empty text="还没有预约任务：在上面的店铺列表里抢单，或到「任务调度」页创建定时预约" />)}
