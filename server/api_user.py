@@ -1329,7 +1329,7 @@ WRITE_ACTIONS = {
 # ------------------------------------------------------------ 电脑微信直连提 token
 #
 # 服务端跑在 Linux 容器时读不到用户 Windows 上的微信进程，所以走「配对码 + 一次性脚本」：
-# 面板生成 6 位码，用户在本机跑脚扫描 WeChatAppEx.exe 内存，把 token 报回来入库。
+# 面板生成 10 位随机码，用户在本机跑脚扫描 WeChatAppEx.exe 内存，把 token 报回来入库。
 # 若服务端本身部署在 Windows（开源版形态），可以直接调 /scan 就地扫。
 
 
@@ -1346,9 +1346,25 @@ def wechat_direct_pair_status_api(code: str):
     return core.ok(wechat_direct.pair_status(code, core.current_user()["id"]))
 
 
+# report 是匿名接口：按 IP 限频，避免有人枚举配对码
+_REPORT_HITS: dict[str, list[float]] = {}
+_REPORT_WINDOW = 60
+_REPORT_MAX = 20
+
+
+def _report_rate_limited(ip: str) -> bool:
+    now = __import__("time").time()
+    hits = [t for t in _REPORT_HITS.get(ip, []) if now - t < _REPORT_WINDOW]
+    hits.append(now)
+    _REPORT_HITS[ip] = hits[-_REPORT_MAX * 2:]
+    return len(hits) > _REPORT_MAX
+
+
 @bp.post("/xiaocan/wechat/report")
 def wechat_direct_report_api():
     """Windows 脚本回调：凭配对码入库，不需要登录态（脚本没有浏览器 cookie）。"""
+    if _report_rate_limited(core.current_ip()):
+        return core.fail("请求过于频繁，请稍后再试")
     body = request.get_json(silent=True) or {}
     code = str(body.get("code") or "").strip()
     try:

@@ -14,8 +14,8 @@ class PairTests(unittest.TestCase):
     def test_pair_is_six_digits_and_scoped(self) -> None:
         created = wechat_direct.create_pair(7)
         code = created["code"]
-        self.assertEqual(len(code), 6)
-        self.assertTrue(code.isdigit())
+        self.assertEqual(len(code), 10)
+        self.assertTrue(code.isalnum())
         self.assertEqual(wechat_direct.pair_status(code, 7)["state"], "waiting")
         # 别人的码查不到（按 user_id 隔离）
         self.assertEqual(wechat_direct.pair_status(code, 8)["state"], "expired")

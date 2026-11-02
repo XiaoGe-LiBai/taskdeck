@@ -203,12 +203,22 @@ def _gc_pairs() -> None:
         _PAIRS.pop(code, None)
 
 
+_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # 去掉 0/O/1/I 这类易混字符
+
+
+def _new_code() -> str:
+    return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(10))
+
+
 def create_pair(user_id: int) -> dict:
-    """生成 6 位配对码：Windows 脚本凭它把 token 报到「生成它的这个用户」名下。"""
+    """生成 10 位配对码：Windows 脚本凭它把 token 报到「生成它的这个用户」名下。
+
+    不能用短数字码：report 是匿名接口，码太短会被枚举，等于把别人的 token 交出去。
+    """
     _gc_pairs()
-    code = f"{secrets.randbelow(10 ** 6):06d}"
+    code = _new_code()
     while code in _PAIRS:
-        code = f"{secrets.randbelow(10 ** 6):06d}"
+        code = _new_code()
     _PAIRS[code] = {
         "user_id": int(user_id),
         "created": time.time(),
@@ -227,6 +237,13 @@ def pair_status(code: str, user_id: int) -> dict:
     if time.time() - item["created"] > PAIR_TTL and item["state"] == "waiting":
         return {"state": "expired"}
     return {"state": item["state"], "account": item["account"], "error": item["error"]}
+
+
+def _safe_account(account: dict | None) -> dict | None:
+    """对外只给必要字段：token 已经在库里，没必要再回传给浏览器或脚本。"""
+    if not account:
+        return account
+    return {k: v for k, v in account.items() if k not in ("access_token", "token")}
 
 
 def report(code: str, payload: dict) -> dict:
@@ -252,7 +269,8 @@ def report(code: str, payload: dict) -> dict:
 
     line = f"{nickname or silk_id[-4:]}#{user_id}#{silk_id}#{token}"
     data = xiaocan_bridge.bind_from_lines(item["user_id"], line)
-    account = data["accounts"][0] if data.get("accounts") else None
+    raw = data["accounts"][0] if data.get("accounts") else None
+    account = _safe_account(raw)
     item["state"] = "done"
     item["account"] = account
     return {"account": account, "errors": data.get("errors", [])}
