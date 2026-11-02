@@ -36,11 +36,22 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+/**
+ * 首屏着色脚本：在 hydrate 之前把 `dark` class 打到 <html> 上。
+ *
+ * 放到 React 里做会先渲染一帧浅色再切深色（白屏闪一下），所以必须是阻塞式内联脚本。
+ * 取值与 ThemeToggle 一致：localStorage 的 xc_theme（light/dark/system，缺省跟随系统）。
+ */
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem('xc_theme')||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);}catch(e){}})();`;
+
 export default function RootLayout(props: {
   children: React.ReactNode;
 }) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body>{props.children}</body>
     </html>
   );

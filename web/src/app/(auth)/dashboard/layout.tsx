@@ -10,6 +10,7 @@ import { LocationButton } from '@/features/panel/location/LocationButton';
 import { LocationProvider } from '@/features/panel/location/LocationProvider';
 import { MobileNav } from '@/features/panel/MobileNav';
 import { PageTransition } from '@/features/panel/PageTransition';
+import { ThemeToggle } from '@/features/panel/ThemeToggle';
 import { UserMenu } from '@/features/panel/UserMenu';
 import { backendDown, getSiteInfo, PANEL_API_URL, panelGet, panelMe } from '@/libs/PanelApi';
 
@@ -96,6 +97,7 @@ export default async function DashboardLayout(props: DashboardLayoutProps) {
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
+              <ThemeToggle />
               <LocationButton />
               <UserMenu
                 email={user.email}
