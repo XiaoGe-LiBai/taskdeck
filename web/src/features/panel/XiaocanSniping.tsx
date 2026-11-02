@@ -1,23 +1,17 @@
 'use client';
 
-import type { DualRebateStore, GrabJob, StoreItem } from './actions';
+import type { GrabJob, StoreItem } from './actions';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
-import {
-  fetchDualRebateStoresAction,
-  fetchSchedulerAction,
-  fetchStoresAction,
-  grabPromotionAction,
-} from './actions';
+import { fetchSchedulerAction, fetchStoresAction, grabPromotionAction } from './actions';
 import { useGeoLocation } from './location/LocationContext';
 import { Card, Empty, Tag } from './Ui';
 
 /**
  * 霸王餐抢单与预约。
  *
- * 结构与开源版一致：顶部四个标签页（附近店铺 / 大牌券专享 / 同店双返利 /
- * 预约与监听），每个标签页里是可抢单的店铺列表。大牌券专享不是独立接口，
- * 它是附近店铺里 need_brand_coupon 为真的那一批，所以只在本地拆分一次。
+ * 布局照抄开源版 StoreSniping：一张表、三列 —— 店铺 / 实付满返方案 / 按比例返方案。
+ * 同一家店的多档满返在右列用「档位」切换，比例返同理；两类活动都有的店才是「同店双返利」。
  */
 type TabKey = 'stores' | 'brand' | 'dual' | 'appointments';
 
@@ -28,7 +22,20 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: 'appointments', label: '预约与监听' },
 ];
 
-const FIRST_KEYS = ['shop_name', 'store_name', 'poi_name', 'name', 'title', 'meituan_shop_url'];
+type StoreRow = {
+  key: string;
+  name: string;
+  icon: string;
+  address: string;
+  hours: string;
+  category: string;
+  distance: number;
+  redpack: boolean;
+  /** 实付满返档位（多条即多档） */
+  fixed: StoreItem[];
+  /** 按比例返档位 */
+  percent: StoreItem[];
+};
 
 const text = (item: StoreItem, keys: string[]): string => {
   for (const key of keys) {
@@ -43,23 +50,13 @@ const text = (item: StoreItem, keys: string[]): string => {
   return '';
 };
 
-const storeName = (item: StoreItem) => text(item, FIRST_KEYS) || '未命名店铺';
-
-const storeDistance = (item: StoreItem) => {
-  const raw = item.distance;
-  if (typeof raw !== 'number') {
-    return '';
-  }
-  return raw >= 1000 ? `${(raw / 1000).toFixed(1)} km` : `${Math.round(raw)} m`;
+const shopOf = (item: StoreItem): Record<string, unknown> => {
+  const shop = item.store;
+  return shop && typeof shop === 'object' ? shop as Record<string, unknown> : {};
 };
 
-const storeRebate = (item: StoreItem) => {
-  const raw = item.order_money ?? item.rebate_money ?? item.back_money;
-  if (typeof raw !== 'number' || raw <= 0) {
-    return '';
-  }
-  return `返 ¥${(raw / 100).toFixed(2)}`;
-};
+const storeName = (item: StoreItem) =>
+  text(item, ['meituan_shop_url', 'name', 'shop_name']) || text(shopOf(item), ['name']) || '未命名店铺';
 
 const promoId = (item: StoreItem) => {
   for (const key of ['promotion_id', 'id', 'promotionId']) {
@@ -72,86 +69,48 @@ const promoId = (item: StoreItem) => {
 };
 
 const isBrand = (item: StoreItem) => {
-  const flag = item.need_brand_coupon ?? item.brand_coupon ?? item.needBrandCoupon;
-  if (typeof flag === 'boolean') {
-    return flag;
+  const flag = item.need_brand_coupon ?? item.brand_coupon;
+  return flag === true || flag === 1 || flag === 'true';
+};
+
+/** 实付满返：有门槛金额与返现金额 */
+const isFixed = (item: StoreItem) => Number(item.order_money ?? 0) > 0 && Number(item.user_rebate ?? 0) > 0;
+
+/** 按比例返：ratio 是万分比（5400 = 54%），max_commission 是最高返（分） */
+const isPercent = (item: StoreItem) => Number(item.ratio ?? 0) > 0;
+
+const money = (value: unknown) => (Number(value ?? 0) / 100).toFixed(Number(value ?? 0) % 100 === 0 ? 0 : 2);
+
+const fixedDesc = (item: StoreItem) => {
+  const condition = text(item, ['rebate_condition_str']);
+  if (condition) {
+    return condition;
   }
-  if (typeof flag === 'number') {
-    return flag > 0;
-  }
-  return String(flag ?? '') === 'true' || String(flag ?? '') === '1';
+  return `满 ${money(item.order_money)} 返 ${money(item.user_rebate)}`;
 };
 
-
-/** 上游把店铺信息放在 store 子对象里，顶层只有活动字段。 */
-const shopOf = (item: StoreItem): Record<string, unknown> => {
-  const shop = item.store;
-  return shop && typeof shop === 'object' ? shop as Record<string, unknown> : {};
+const percentDesc = (item: StoreItem) => {
+  const rate = Number(item.ratio ?? 0) / 100;
+  const cap = Number(item.max_commission ?? 0);
+  const rateText = Number.isInteger(rate) ? `${rate}%` : `${rate.toFixed(2)}%`;
+  return cap > 0 ? `返 ${rateText} · 最高 ¥${money(cap)}` : `返 ${rateText}`;
 };
 
-const shopIcon = (item: StoreItem) => {
-  const icon = shopOf(item).icon;
-  return typeof icon === 'string' ? icon : '';
-};
-
-const shopAddress = (item: StoreItem) => {
-  const address = shopOf(item).address;
-  return typeof address === 'string' ? address : '';
-};
-
-const shopHours = (item: StoreItem) => {
-  const hours = shopOf(item).opening_hours;
-  return typeof hours === 'string' && hours.trim() ? hours : '';
-};
-
-const shopCategory = (item: StoreItem) => {
-  const category = item.xc_category ?? shopOf(item).category;
-  return typeof category === 'string' ? category : '';
-};
-
-/** 满 X 返 Y：上游以分计价 */
-const conditionText = (item: StoreItem) => {
-  const money = Number(item.order_money ?? 0);
-  const rebate = Number(item.user_rebate ?? item.rebate_price ?? 0);
-  if (money > 0 && rebate > 0) {
-    return `满 ${(money / 100).toFixed(0)} 返 ${(rebate / 100).toFixed(0)}`;
-  }
-  return '';
-};
-
-const leftCount = (item: StoreItem) => {
+const leftOf = (item: StoreItem) => {
   const left = item.left_number ?? item.left_num;
   return typeof left === 'number' ? left : 0;
 };
 
-const canUseRedpack = (item: StoreItem) => Boolean(item.if_use_red_pack);
-
-const canAdvance = (item: StoreItem) => {
-  const info = shopOf(item).store_info as Record<string, unknown> | undefined;
-  return Boolean(info?.if_advance ?? item.if_advance);
+const distanceText = (value: number) => {
+  if (!value) {
+    return '附近';
+  }
+  return value >= 1000 ? `${(value / 1000).toFixed(1)} km` : `${Math.round(value)} m`;
 };
 
-/** 服务费 / 每日限单这些限制写在 store.store_info.store_limit 里 */
-const limitText = (item: StoreItem) => {
-  const info = shopOf(item).store_info as Record<string, unknown> | undefined;
-  const limit = info?.store_limit as Record<string, unknown> | undefined;
-  if (!limit) {
-    return '';
-  }
-  const parts: string[] = [];
-  const fee = Number(limit.service_charge ?? 0);
-  if (fee > 0) {
-    parts.push(`服务费 ¥${(fee / 100).toFixed(2)}`);
-  }
-  const days = Number(limit.days_limit ?? 0);
-  if (days > 0) {
-    parts.push(`${days} 天内限 ${Number(limit.days_order_limit ?? 1)} 单`);
-  }
-  return parts.join(' · ');
-};
+type Window = 'before' | 'active' | 'after';
 
-/** 抢单窗口状态：未开始可预约、进行中可抢、已结束只能看 */
-const windowState = (item: StoreItem): 'before' | 'active' | 'after' => {
+const windowOf = (item: StoreItem): Window => {
   const now = Math.floor(Date.now() / 1000);
   const start = Number(item.start_timestamp ?? 0);
   const end = Number(item.end_timestamp ?? 0);
@@ -164,6 +123,47 @@ const windowState = (item: StoreItem): 'before' | 'active' | 'after' => {
   return 'active';
 };
 
+const minutesUntil = (item: StoreItem) => {
+  const start = Number(item.start_timestamp ?? 0);
+  if (!start) {
+    return 0;
+  }
+  return Math.max(0, Math.round((start - Date.now() / 1000) / 60));
+};
+
+const slotText = (item: StoreItem) =>
+  `${text(item, ['start_time_hour']) || '全天'} ~ ${text(item, ['end_time_hour']) || '23:59'}`;
+
+const groupStores = (items: StoreItem[]): StoreRow[] => {
+  const map = new Map<string, StoreRow>();
+  for (const item of items) {
+    const name = storeName(item);
+    const shop = shopOf(item);
+    const row = map.get(name) ?? {
+      key: name,
+      name,
+      icon: typeof shop.icon === 'string' ? shop.icon : '',
+      address: typeof shop.address === 'string' ? shop.address : '',
+      hours: typeof shop.opening_hours === 'string' ? shop.opening_hours : '',
+      category: text(item, ['xc_category']) || text(shop, ['category']),
+      distance: Number(item.distance ?? 0),
+      redpack: Boolean(item.if_use_red_pack),
+      fixed: [],
+      percent: [],
+    };
+    if (isFixed(item)) {
+      row.fixed.push(item);
+    } else if (isPercent(item)) {
+      row.percent.push(item);
+    } else {
+      // 既没有门槛也没有比例，就按满返方案兜底展示，避免整店消失
+      row.fixed.push(item);
+    }
+    map.set(name, row);
+  }
+  return [...map.values()].sort((a, b) => a.distance - b.distance);
+};
+
 export const XiaocanSniping = (props: {
   accounts: Array<{ id: number; nickname: string; account_info: string }>;
 }) => {
@@ -171,14 +171,19 @@ export const XiaocanSniping = (props: {
   const [tab, setTab] = useState<TabKey>('stores');
   const [items, setItems] = useState<StoreItem[]>([]);
   const [keyword, setKeyword] = useState('');
-  const [dualStores, setDualStores] = useState<DualRebateStore[]>([]);
   const [jobs, setJobs] = useState<GrabJob[]>([]);
+  const [picked, setPicked] = useState<Record<string, string>>({});
   const [pending, setPending] = useState('');
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const { location, open: openLocation } = useGeoLocation();
 
-  const brandItems = useMemo(() => items.filter(isBrand), [items]);
-  const normalItems = useMemo(() => items.filter(item => !isBrand(item)), [items]);
+  const rows = useMemo(() => groupStores(items), [items]);
+  const normalRows = useMemo(() => rows.filter(row => !row.fixed.some(isBrand)), [rows]);
+  const brandRows = useMemo(() => rows.filter(row => row.fixed.some(isBrand) || row.percent.some(isBrand)), [rows]);
+  const dualRows = useMemo(
+    () => rows.filter(row => row.fixed.length > 0 && row.percent.length > 0),
+    [rows],
+  );
 
   const requireLocation = useCallback(() => {
     if (location) {
@@ -193,7 +198,7 @@ export const XiaocanSniping = (props: {
     if (!requireLocation()) {
       return;
     }
-    setPending('stores');
+    setPending('load');
     setMessage(null);
     const result = await fetchStoresAction({
       accountId,
@@ -210,38 +215,8 @@ export const XiaocanSniping = (props: {
       return;
     }
     setItems(result.items);
-    setMessage(
-      result.items.length
-        ? null
-        : { ok: false, text: '这一页没有结果，换个定位或关键词试试' },
-    );
+    setMessage(result.items.length ? null : { ok: false, text: '这一页没有结果，换个定位或关键词试试' });
   }, [accountId, location, requireLocation]);
-
-  const scanDual = useCallback(async () => {
-    if (!requireLocation()) {
-      return;
-    }
-    setPending('dual');
-    setMessage(null);
-    const result = await fetchDualRebateStoresAction({
-      accountId,
-      lat: location!.lat,
-      lon: location!.lon,
-      cityCode: location!.cityCode,
-      q: keyword,
-    });
-    setPending('');
-    if (!result.ok) {
-      setMessage({ ok: false, text: result.msg });
-      return;
-    }
-    setDualStores(result.stores);
-    setMessage(
-      result.stores.length
-        ? null
-        : { ok: false, text: '附近没有同店多方案的门店，换个定位再扫一次' },
-    );
-  }, [accountId, keyword, location, requireLocation]);
 
   const loadJobs = useCallback(async () => {
     const result = await fetchSchedulerAction();
@@ -251,11 +226,10 @@ export const XiaocanSniping = (props: {
   }, []);
 
   useEffect(() => {
-    if (!props.accounts.length) {
-      return;
+    if (props.accounts.length) {
+      void loadStores();
+      void loadJobs();
     }
-    void loadStores();
-    void loadJobs();
   }, [props.accounts.length, loadStores, loadJobs]);
 
   const grab = async (id: string) => {
@@ -278,6 +252,234 @@ export const XiaocanSniping = (props: {
     }
   };
 
+  /** 方案列：档位切换 + 状态化按钮，与开源版一致 */
+  const renderPlans = (row: StoreRow, kind: 'fixed' | 'percent') => {
+    const plans = kind === 'fixed' ? row.fixed : row.percent;
+    if (!plans.length) {
+      return (
+        <span className="text-xs text-muted-foreground">
+          {kind === 'fixed' ? '暂无满返活动' : '暂无比例活动'}
+        </span>
+      );
+    }
+    const pickKey = `${row.key}:${kind}`;
+    const chosen = picked[pickKey] ?? promoId(plans[0]!);
+    const active = plans.find(plan => promoId(plan) === chosen) ?? plans[0]!;
+    const id = promoId(active);
+    const left = leftOf(active);
+    const soldOut = left <= 0;
+    const state = windowOf(active);
+    const busy = pending === `grab-${id}`;
+
+    return (
+      <div className="flex flex-col gap-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <Tag tone={kind === 'fixed' ? 'info' : 'success'}>
+              {kind === 'fixed' ? '实付满返' : '按比例返'}
+            </Tag>
+            <span className="font-mono text-sm font-bold text-foreground">
+              {kind === 'fixed' ? fixedDesc(active) : percentDesc(active)}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <Tag tone={soldOut ? 'gray' : (kind === 'fixed' ? 'info' : 'success')}>
+              {soldOut ? '已领完' : `余 ${left} 份`}
+            </Tag>
+            {state === 'active' && !soldOut && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void grab(id)}
+                className="
+                  rounded-md bg-brand-gradient px-2.5 py-1 text-xs font-medium
+                  text-white shadow-sm transition-all
+                  hover:opacity-95
+                  active:scale-95
+                  disabled:opacity-50
+                "
+              >
+                {busy ? '抢单中…' : (kind === 'fixed' ? '抢满返' : '抢比例')}
+              </button>
+            )}
+            {state === 'active' && soldOut && (
+              <button
+                type="button"
+                disabled
+                className="
+                  rounded-md border px-2.5 py-1 text-xs text-muted-foreground
+                  opacity-60
+                "
+              >
+                已领完
+              </button>
+            )}
+            {state === 'before' && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void grab(id)}
+                className="
+                  rounded-md border border-primary/40 px-2.5 py-1 text-xs
+                  font-medium text-primary transition-colors
+                  hover:bg-primary/10
+                  disabled:opacity-50
+                "
+              >
+                {busy ? '提交中…' : '预约'}
+              </button>
+            )}
+            {state === 'after' && (
+              <button
+                type="button"
+                disabled
+                className="
+                  rounded-md border px-2.5 py-1 text-xs text-muted-foreground
+                  opacity-60
+                "
+              >
+                已过时
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="
+          flex flex-wrap items-center gap-1.5 rounded-md bg-muted/40 px-2 py-1
+          text-[11px] text-muted-foreground
+        "
+        >
+          <span>抢单时段:</span>
+          <span className="font-mono font-medium text-foreground">{slotText(active)}</span>
+          {state === 'before'
+            ? <Tag tone="info">{`未开抢 (${minutesUntil(active)} 分后)`}</Tag>
+            : state === 'active'
+              ? <Tag tone="success">进行中</Tag>
+              : <Tag tone="gray">已结束</Tag>}
+        </div>
+
+        {plans.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-muted-foreground">切换档位:</span>
+            {plans.map((plan, index) => {
+              const pid = promoId(plan);
+              const isActive = pid === id;
+              const planLeft = leftOf(plan);
+              return (
+                <button
+                  key={pid || index}
+                  type="button"
+                  onClick={() => setPicked(prev => ({ ...prev, [pickKey]: pid }))}
+                  className={`
+                    rounded-md border px-2 py-0.5 text-[11px] transition-colors
+                    ${isActive
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : `hover:bg-muted`}
+                  `}
+                >
+                  {`档位 ${index + 1}`}
+                  <span className={planLeft > 0
+                    ? 'text-primary'
+                    : `text-muted-foreground`}
+                  >
+                    {planLeft > 0 ? `[余${planLeft}]` : '[无票]'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderTable = (list: StoreRow[], emptyText: string) => {
+    if (!list.length) {
+      return <Empty text={emptyText} />;
+    }
+    return (
+      <div className="-mx-1 overflow-x-auto">
+        <table className="
+          w-full min-w-[900px] border-separate border-spacing-y-2 px-1
+        "
+        >
+          <thead>
+            <tr className="text-left text-xs text-muted-foreground">
+              <th className="w-[34%] px-3 pb-1 font-medium">店铺</th>
+              <th className="w-[33%] px-3 pb-1 font-medium">实付满返方案</th>
+              <th className="w-[33%] px-3 pb-1 font-medium">按比例返方案</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map(row => (
+              <tr key={row.key} className="bg-card align-top">
+                <td className="rounded-l-lg border border-r-0 p-3">
+                  <div className="flex items-start gap-2.5">
+                    <div className="
+                      flex size-10 shrink-0 items-center justify-center
+                      overflow-hidden rounded-lg bg-muted text-sm font-semibold
+                      text-muted-foreground
+                    "
+                    >
+                      {row.icon
+                        ? (
+                            <img
+                              src={row.icon}
+                              alt=""
+                              className="size-full object-cover"
+                              loading="lazy"
+                            />
+                          )
+                        : row.name.slice(0, 1)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Tag tone="info">美团外卖</Tag>
+                        <span className="truncate text-sm font-medium">{row.name}</span>
+                      </div>
+                      <div className="
+                        mt-1.5 flex flex-wrap items-center gap-1.5 text-xs
+                      "
+                      >
+                        <Tag tone="gray">{distanceText(row.distance)}</Tag>
+                        {row.redpack && <Tag tone="danger">可用红包</Tag>}
+                        {row.category && (
+                          <span className="text-muted-foreground">{row.category}</span>
+                        )}
+                      </div>
+                      <div className="
+                        mt-1.5 flex flex-wrap items-center gap-1.5 text-xs
+                      "
+                      >
+                        <Tag tone={row.fixed.some(plan => leftOf(plan) > 0) ? 'info' : 'gray'}>
+                          {`实付剩 ${row.fixed.reduce((sum, plan) => sum + leftOf(plan), 0)} 单`}
+                        </Tag>
+                        <Tag tone={row.percent.some(plan => leftOf(plan) > 0) ? 'success' : 'gray'}>
+                          {`比例剩 ${row.percent.reduce((sum, plan) => sum + leftOf(plan), 0)} 单`}
+                        </Tag>
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        {`门店营业: ${row.hours || '00:00-23:59'}`}
+                      </div>
+                      <div className="
+                        truncate text-[11px] text-muted-foreground
+                      "
+                      >
+                        {`地址: ${row.address || '依据外卖平台定位'}`}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td className="border-y p-3">{renderPlans(row, 'fixed')}</td>
+                <td className="rounded-r-lg border border-l-0 p-3">{renderPlans(row, 'percent')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   if (!props.accounts.length) {
     return (
       <Card title="霸王餐抢单与预约" description="先绑定小蚕账号，才能代你查店与抢单">
@@ -285,132 +487,6 @@ export const XiaocanSniping = (props: {
       </Card>
     );
   }
-
-  const renderStoreRow = (item: StoreItem, index: number) => {
-    const id = promoId(item);
-    const busy = pending === `grab-${id}`;
-    const icon = shopIcon(item);
-    const left = leftCount(item);
-    const state = windowState(item);
-    const soldOut = left <= 0;
-    return (
-      <div
-        key={`${storeName(item)}-${id || index}`}
-        className="
-          flex items-start gap-3 rounded-lg border p-3 transition-colors
-          hover:border-primary/40
-        "
-      >
-        <div className="
-          flex size-10 shrink-0 items-center justify-center overflow-hidden
-          rounded-lg bg-muted text-sm font-semibold text-muted-foreground
-        "
-        >
-          {icon
-            ? <img src={icon} alt="" className="size-full object-cover" loading="lazy" />
-            : storeName(item).slice(0, 1)}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Tag tone="info">美团外卖</Tag>
-            <span className="truncate text-sm font-medium">{storeName(item)}</span>
-            {isBrand(item) && <Tag tone="warning">大牌券</Tag>}
-            {Boolean(item.if_repurchase_promotion) && <Tag tone="gray">可复购</Tag>}
-          </div>
-
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
-            {conditionText(item) && <Tag tone="warning">{conditionText(item)}</Tag>}
-            <span className="text-muted-foreground">
-              {storeDistance(item) || '附近'}
-            </span>
-            {canUseRedpack(item) && <Tag tone="danger">可用红包</Tag>}
-            {canAdvance(item) && <Tag tone="info">支持超前抢</Tag>}
-            {shopCategory(item) && (
-              <span className="text-muted-foreground">{shopCategory(item)}</span>
-            )}
-          </div>
-
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
-            <Tag tone={soldOut ? 'gray' : 'info'}>
-              {soldOut ? '已领完' : `实付剩 ${left} 单`}
-            </Tag>
-            {limitText(item) && (
-              <span className="text-muted-foreground">{limitText(item)}</span>
-            )}
-          </div>
-
-          <div className="mt-1 text-[11px] text-muted-foreground">
-            {`门店营业: ${shopHours(item) || '00:00-23:59'}`}
-          </div>
-          <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-            {`地址: ${shopAddress(item) || '依据外卖平台定位'}`}
-          </div>
-        </div>
-
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          {state === 'active' && !soldOut && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void grab(id)}
-              className="
-                rounded-md bg-brand-gradient px-3 py-1.5 text-xs font-medium
-                text-white shadow-sm transition-all duration-150
-                hover:opacity-95
-                active:scale-95
-                disabled:opacity-50
-              "
-            >
-              {busy ? '抢单中…' : '抢单'}
-            </button>
-          )}
-          {state === 'active' && soldOut && (
-            <button
-              type="button"
-              disabled
-              className="
-                rounded-md border px-3 py-1.5 text-xs text-muted-foreground
-                opacity-60
-              "
-            >
-              已领完
-            </button>
-          )}
-          {state === 'before' && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void grab(id)}
-              className="
-                rounded-md border border-primary/40 px-3 py-1.5 text-xs
-                font-medium text-primary transition-colors
-                hover:bg-primary/10
-                disabled:opacity-50
-              "
-            >
-              {busy ? '提交中…' : '预约'}
-            </button>
-          )}
-          {state === 'after' && (
-            <button
-              type="button"
-              disabled
-              className="
-                rounded-md border px-3 py-1.5 text-xs text-muted-foreground
-                opacity-60
-              "
-            >
-              已过时
-            </button>
-          )}
-          <span className="text-[11px] text-muted-foreground">
-            {state === 'before' ? '未开始' : (state === 'active' ? '进行中' : '已结束')}
-          </span>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <Card
@@ -431,15 +507,15 @@ export const XiaocanSniping = (props: {
           </select>
           <button
             type="button"
-            onClick={() => void (tab === 'dual' ? scanDual() : loadStores(keyword))}
-            disabled={Boolean(pending)}
+            onClick={() => void loadStores(keyword)}
+            disabled={pending === 'load'}
             className="
               rounded-md border px-3 py-1.5 text-xs font-medium
               hover:bg-muted
               disabled:opacity-50
             "
           >
-            {pending === 'stores' || pending === 'dual' ? '查询中…' : (tab === 'dual' ? '扫描同店双返利' : '刷新')}
+            {pending === 'load' ? '查询中…' : '刷新'}
           </button>
         </div>
       )}
@@ -467,14 +543,14 @@ export const XiaocanSniping = (props: {
             `}
           >
             {item.label}
-            {item.key === 'stores' && ` (${normalItems.length})`}
-            {item.key === 'brand' && ` (${brandItems.length})`}
-            {item.key === 'dual' && dualStores.length > 0 && ` (${dualStores.length})`}
-            {item.key === 'appointments' && jobs.length > 0 && ` (${jobs.length})`}
+            {item.key === 'stores' && ` (${normalRows.length})`}
+            {item.key === 'brand' && ` (${brandRows.length})`}
+            {item.key === 'dual' && ` (${dualRows.length})`}
+            {item.key === 'appointments' && ` (${jobs.length})`}
           </button>
         ))}
 
-        {(tab === 'stores' || tab === 'brand' || tab === 'dual') && (
+        {tab !== 'appointments' && (
           <div className="ml-auto flex items-center gap-2">
             <Input
               value={keyword}
@@ -484,7 +560,7 @@ export const XiaocanSniping = (props: {
             />
             <button
               type="button"
-              onClick={() => void (tab === 'dual' ? scanDual() : loadStores(keyword))}
+              onClick={() => void loadStores(keyword)}
               className="
                 rounded-md border px-3 py-1.5 text-xs
                 hover:bg-muted
@@ -514,99 +590,35 @@ export const XiaocanSniping = (props: {
         </div>
       )}
 
-      <div className="mt-3 flex flex-col gap-2">
-        {tab === 'stores' && (normalItems.length
-          ? normalItems.map(renderStoreRow)
-          : <Empty text="暂无附近店铺" />)}
-
-        {tab === 'brand' && (brandItems.length
-          ? brandItems.map(renderStoreRow)
-          : <Empty text="当前列表里没有需要大牌券的店" />)}
-
-        {tab === 'dual' && (dualStores.length
-          ? dualStores.map(store => (
-              <div key={store.name} className="rounded-lg border p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-medium">{store.name}</span>
-                  <Tag tone="warning">
-                    {store.count}
-                    {' '}
-                    个方案
-                  </Tag>
-                </div>
-                <div className="mt-2 flex flex-col gap-2">
-                  {store.items.map((item, index) => {
-                    const left = leftCount(item);
-                    const state = windowState(item);
-                    return (
-                      <div
-                        key={`${store.name}-${promoId(item)}-${index}`}
-                        className="
-                          flex flex-wrap items-center justify-between gap-2
-                          rounded-md bg-muted/40 px-2 py-1.5
-                        "
-                      >
-                        <div className="
-                          flex flex-wrap items-center gap-1.5 text-xs
-                        "
-                        >
-                          <Tag tone="warning">{conditionText(item) || storeRebate(item) || '返利未知'}</Tag>
-                          <Tag tone={left > 0 ? 'info' : 'gray'}>
-                            {left > 0 ? `余 ${left} 份` : '已领完'}
-                          </Tag>
-                          {canUseRedpack(item) && <Tag tone="danger">可用红包</Tag>}
-                          {canAdvance(item) && <Tag tone="info">支持超前抢</Tag>}
-                          <span className="text-muted-foreground">
-                            {storeDistance(item) || '附近'}
-                          </span>
-                          {shopHours(item) && (
-                            <span className="text-muted-foreground">{shopHours(item)}</span>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          disabled={pending === `grab-${promoId(item)}` || state === 'after' || left <= 0}
-                          onClick={() => void grab(promoId(item))}
-                          className="
-                            rounded-md border px-2 py-1 text-xs
-                            hover:bg-muted
-                            disabled:opacity-50
-                          "
-                        >
-                          {state === 'before' ? '预约' : (left > 0 ? '抢这个方案' : '已领完')}
-                        </button>
+      <div className="mt-3">
+        {tab === 'stores' && renderTable(normalRows, '暂无附近店铺')}
+        {tab === 'brand' && renderTable(brandRows, '当前列表里没有需要大牌券的店')}
+        {tab === 'dual' && renderTable(dualRows, '附近没有同时有满返与比例返的店')}
+        {tab === 'appointments' && (
+          <div className="flex flex-col gap-2">
+            {jobs.length
+              ? jobs.map(job => (
+                  <div
+                    key={job.id}
+                    className="
+                      flex flex-wrap items-center justify-between gap-2
+                      rounded-lg border p-3
+                    "
+                  >
+                    <div>
+                      <div className="text-sm font-medium">
+                        {job.title || job.promotion_id || job.id}
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))
-          : <Empty text="点右上角「扫描同店双返利」开始扫描" />)}
-
-        {tab === 'appointments' && (jobs.length
-          ? jobs.map(job => (
-              <div
-                key={job.id}
-                className="
-                  flex flex-wrap items-center justify-between gap-2 rounded-lg
-                  border p-3
-                "
-              >
-                <div>
-                  <div className="text-sm font-medium">
-                    {job.title || job.promotion_id || job.id}
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {`计划时间 ${job.at || '立即'}${job.status ? ` · ${job.status}` : ''}`}
+                      </div>
+                    </div>
+                    <Tag tone="info">{job.status || '排队中'}</Tag>
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    计划时间
-                    {' '}
-                    {job.at || '立即'}
-                    {job.status ? ` · ${job.status}` : ''}
-                  </div>
-                </div>
-                <Tag tone="info">{job.status || '排队中'}</Tag>
-              </div>
-            ))
-          : <Empty text="还没有预约任务：在上面的店铺列表里抢单，或到「任务调度」页创建定时预约" />)}
+                ))
+              : <Empty text="还没有预约任务：在上面的方案里点「预约」即可排队" />}
+          </div>
+        )}
       </div>
     </Card>
   );
