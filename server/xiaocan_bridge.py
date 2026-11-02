@@ -325,7 +325,10 @@ def _upsert_account(user_id: int, nickname: str, xc_user_id: str, silk_id: str, 
             "SELECT COUNT(*) AS n FROM accounts WHERE user_id=?", (user_id,)
         )["n"]
         capacity = vip.effective_slots(owner)
-        if used >= capacity:
+        # 管理员是站务/运营账号，车位不设限：否则站主自己 0 车位时连一个号都绑不上，
+        # 且报错会被扫码流程笼统成「扫码失败」，极难自查。
+        is_admin = str(dict(owner or {}).get("role") or "") == "admin"
+        if not is_admin and used >= capacity:
             tier = vip.table(vip.current_level(owner))["name"]
             raise ValueError(
                 f"车位已满（{used}/{capacity}）：请先删除不用的账号，或升级会员增加车位（当前 {tier}）"
@@ -424,7 +427,9 @@ def poll_wx_status(session: dict) -> tuple[int, str]:
     resp = requests.get(WX_QR_POLL_URL, params=params,
                         headers={"user-agent": _QR_UA}, timeout=(5, 4))
     resp.raise_for_status()
-    match = re.search(r"window\.wx_errcode=(\d+);", resp.text)
+    # 微信返回形如 window.wx_errcode=405;window.wx_code='xxx';window.wx_state=;
+    # 历史上出现过引号/分号写法变化，这里两种都认，避免「已确认但取不到 code」卡住
+    match = re.search(r"wx_errcode\s*=\s*(\d+)", resp.text)
     if not match:
         raise RuntimeError(f"无法解析扫码状态：{resp.text[:120]}")
     errcode = int(match.group(1))
@@ -432,7 +437,7 @@ def poll_wx_status(session: dict) -> tuple[int, str]:
     if errcode == 404:
         session["last"] = "404"
     elif errcode == 405:
-        found = re.search(r"window\.wx_code='([^']*)'", resp.text)
+        found = re.search(r"""wx_code\s*=\s*['"]([^'"]*)['"]""", resp.text)
         code = found.group(1) if found else ""
     return errcode, code
 
@@ -645,6 +650,7 @@ def qr_status(session_id: str) -> dict:
     if errcode == 403:
         session["state"] = "error"
         session["error"] = "用户取消了授权"
+        print("[xiaocan-qr] 用户取消授权", flush=True)
         return {"state": "error", "error": session["error"]}
     if errcode != 405 or not code:
         return {"state": "waiting"}
@@ -659,8 +665,11 @@ def qr_status(session_id: str) -> dict:
             core.update("accounts", bound[0]["id"], {"vip_level": level, "updated_time": core.iso()})
             data["accounts"][0]["vip_level"] = level
     except Exception as exc:
+        # 扫码失败的根因（车位已满 / 上游拒绝 / 解析失败）必须落到服务端日志，
+        # 否则前端只能显示笼统的「扫码失败」，排查全靠猜
         session["state"] = "error"
         session["error"] = str(exc)
+        print(f"[xiaocan-qr] 兑换凭证失败：{type(exc).__name__}: {exc}", flush=True)
         return {"state": "error", "error": session["error"]}
     session["state"] = "done"
     session["result"] = text

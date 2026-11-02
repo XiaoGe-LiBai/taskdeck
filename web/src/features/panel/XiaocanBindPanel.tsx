@@ -77,6 +77,9 @@ export const XiaocanBindPanel = () => {
         if (res.state === 'done') {
           setSucceeded(true);
           router.refresh();
+        } else if (res.state === 'error' && res.detail) {
+          // 有具体原因就显示具体原因，别让用户对着「扫码失败」猜
+          setError(`扫码失败：${res.detail}`);
         } else {
           setError(STATUS_LABEL[res.state] ?? `扫码失败（${res.state}）`);
         }

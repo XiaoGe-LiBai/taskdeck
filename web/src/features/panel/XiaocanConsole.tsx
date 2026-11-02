@@ -28,6 +28,18 @@ const CITY_PRESETS = [
 
 const CATEGORY_TABS = ['全部', '免单卡', '影音卡', '品牌券', '其他卡券'];
 
+/** 未绑定账号时的模块清单：让人先看清能力面，而不是只看到一句「还没绑定」 */
+const MODULES = [
+  { icon: '🪙', name: '元宝资产', hint: '余额、待领取、已兑换' },
+  { icon: '📋', name: '每日任务', hint: '任务列表与单条领取' },
+  { icon: '📅', name: '签到历史', hint: '连续天数与逐日记录' },
+  { icon: '🎰', name: '幸运抽奖', hint: '抽一次 / 广告加次 / 额外次数' },
+  { icon: '🧧', name: '整点红包雨', hint: '场次状态 / 报名 / 抢' },
+  { icon: '🎟️', name: '外卖免单卡', hint: '每月持有状态 / 抢免单' },
+  { icon: '💳', name: '卡券包', hint: '免单卡 / 影音卡 / 品牌券' },
+  { icon: '💰', name: '霸王餐红包', hint: '金额、门槛、到期时间' },
+];
+
 const fen = (value: number) => `¥${((Number(value) || 0) / 100).toFixed(2)}`;
 
 const pointText = (value: number) => (Number(value) || 0).toLocaleString();
@@ -99,12 +111,23 @@ export const XiaocanConsole = (props: {
     setLoading(false);
   }, [pull]);
 
+  /**
+   * 实际生效的账号。
+   *
+   * state 里的 accountId 可能是 0（首次进来还没绑号），绑定成功后 props 才有账号；
+   * 这里在渲染期回落到第一个账号，避免「绑定成功但工作台一直空着」，
+   * 也避免用 effect 里 setState 造成的多余渲染。
+   */
+  const activeAccountId = props.accounts.some(item => item.id === accountId)
+    ? accountId
+    : (props.accounts[0]?.id ?? 0);
+
   useEffect(() => {
-    if (accountId) {
-      void reloadAll(accountId, cityCode);
+    if (activeAccountId) {
+      void reloadAll(activeAccountId, cityCode);
     }
     // 只在换账号/换定位时重拉；reloadAll 已 memo
-  }, [accountId, cityCode, reloadAll]);
+  }, [activeAccountId, cityCode, reloadAll]);
 
   /** 写操作：执行成功后按需刷新受影响的段。 */
   const run = async (
@@ -115,27 +138,27 @@ export const XiaocanConsole = (props: {
   ) => {
     setPending(action);
     setMessage(null);
-    const result = await callXiaocanAction(accountId, action, params);
+    const result = await callXiaocanAction(activeAccountId, action, params);
     setPending('');
     if (!result.ok) {
       setMessage({ ok: false, text: `${label}失败：${result.msg || '未知错误'}` });
       return false;
     }
     setMessage({ ok: true, text: `${label}已完成` });
-    await pull(accountId, sections, cityCode);
+    await pull(activeAccountId, sections, cityCode);
     return true;
   };
 
   const runDaily = async () => {
     setPending('daily');
     setMessage(null);
-    const result = await runXiaocanDailyForAccountAction(accountId);
+    const result = await runXiaocanDailyForAccountAction(activeAccountId);
     setPending('');
     setMessage({
       ok: result.ok,
       text: result.summary || result.msg || '已执行',
     });
-    await reloadAll(accountId, cityCode);
+    await reloadAll(activeAccountId, cityCode);
   };
 
   const assets = data.assets;
@@ -155,9 +178,33 @@ export const XiaocanConsole = (props: {
   const busy = loading || Boolean(pending);
 
   if (!props.accounts.length) {
+    // 没绑号时也要让人看到「这里到底有什么」，否则整页只剩一句「还没绑定」，
+    // 看起来就像功能不存在
     return (
-      <Card title="小蚕资产工作台" description="先绑定小蚕账号">
-        <Empty text="还没有绑定小蚕账号，绑定后这里会显示元宝、任务、抽奖与卡券" />
+      <Card
+        title="小蚕资产工作台"
+        description="绑定小蚕账号后，下面这些模块会按官方数据实时展示"
+      >
+        <div className="
+          grid gap-2
+          sm:grid-cols-2
+          lg:grid-cols-4
+        "
+        >
+          {MODULES.map(item => (
+            <div key={item.name} className="rounded-md border px-3 py-2">
+              <div className="text-sm font-medium">
+                {item.icon}
+                {' '}
+                {item.name}
+              </div>
+              <div className="mt-0.5 text-xs text-muted-foreground">{item.hint}</div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          下方「小蚕账号登录 / 绑定」扫码即可接入；绑定成功后本区自动出现数据与操作按钮。
+        </p>
       </Card>
     );
   }
@@ -182,7 +229,7 @@ export const XiaocanConsole = (props: {
         actions={(
           <div className="flex flex-wrap items-center gap-2">
             <select
-              value={accountId}
+              value={activeAccountId}
               onChange={event => setAccountId(Number(event.target.value))}
               className="h-8 rounded-md border bg-background px-2 text-xs"
             >
@@ -195,7 +242,7 @@ export const XiaocanConsole = (props: {
             <button
               type="button"
               disabled={busy}
-              onClick={() => void reloadAll(accountId, cityCode)}
+              onClick={() => void reloadAll(activeAccountId, cityCode)}
               className="
                 rounded-md border px-3 py-1.5 text-xs font-medium transition-all
                 duration-150

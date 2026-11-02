@@ -39,7 +39,7 @@ export async function xiaocanQrStartAction(): Promise<
 /** 轮询扫码状态：waiting/scanned/done/expired/error */
 export async function xiaocanQrPollAction(
   sessionId: string,
-): Promise<{ ok: true; state: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; state: string; detail: string } | { ok: false; error: string }> {
   const result = await panelSend<{ state?: string; error?: string }>(
     'GET',
     `/xiaocan/qrcode/status?session_id=${encodeURIComponent(sessionId)}`,
@@ -47,5 +47,10 @@ export async function xiaocanQrPollAction(
   if (!result.ok) {
     return { ok: false, error: result.msg };
   }
-  return { ok: true, state: String(result.data?.state ?? '') };
+  // detail 是后端给出的失败原因（车位已满 / 上游拒绝 / 解析失败），不要吞掉
+  return {
+    ok: true,
+    state: String(result.data?.state ?? ''),
+    detail: String(result.data?.error ?? ''),
+  };
 }
