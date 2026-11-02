@@ -102,7 +102,8 @@ const leftOf = (item: StoreItem): number | null => {
   return typeof left === 'number' ? left : null;
 };
 
-const leftText = (value: number | null) => (value === null ? '不限' : String(value));
+const leftSummary = (label: string, value: number | null) =>
+  value === null ? `${label}不限` : `${label}剩 ${value} 单`;
 
 const distanceText = (value: number) => {
   if (!value) {
@@ -464,10 +465,10 @@ export const XiaocanSniping = (props: {
                       "
                       >
                         <Tag tone={row.fixed.some(plan => (leftOf(plan) ?? 1) > 0) ? 'info' : 'gray'}>
-                          {`实付剩 ${leftText(sumLeft(row.fixed))} 单`}
+                          {leftSummary('实付', sumLeft(row.fixed))}
                         </Tag>
                         <Tag tone={row.percent.some(plan => (leftOf(plan) ?? 1) > 0) ? 'success' : 'gray'}>
-                          {`比例剩 ${leftText(sumLeft(row.percent))} 单`}
+                          {leftSummary('比例', sumLeft(row.percent))}
                         </Tag>
                       </div>
                       <div className="mt-1 text-[11px] text-muted-foreground">
