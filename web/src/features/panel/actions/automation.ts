@@ -66,10 +66,11 @@ export type ParamOption = { label: string; value: string | number };
 export type ParamDef = {
   key: string;
   label: string;
-  type: 'int' | 'text' | 'select';
-  def: string | number;
+  type: 'int' | 'number' | 'text' | 'select' | 'check';
+  def: string | number | boolean;
   min?: number;
   max?: number;
+  step?: number;
   options?: ParamOption[];
   hint?: string;
 };
@@ -77,8 +78,8 @@ export type ParamDef = {
 export async function getAutomationParamsAction(
   accountId: number,
   taskKey: string,
-): Promise<{ ok: true; params: Record<string, string | number>; defs: ParamDef[] } | { ok: false; error: string }> {
-  const resp = await panelSend<{ params: Record<string, string | number>; param_defs: ParamDef[] }>(
+): Promise<{ ok: true; params: Record<string, string | number | boolean>; defs: ParamDef[] } | { ok: false; error: string }> {
+  const resp = await panelSend<{ params: Record<string, string | number | boolean>; param_defs: ParamDef[] }>(
     'GET',
     `/xiaocan/accounts/${accountId}/automation/${encodeURIComponent(taskKey)}/params`,
   );
@@ -91,9 +92,9 @@ export async function getAutomationParamsAction(
 export async function saveAutomationParamsAction(
   accountId: number,
   taskKey: string,
-  params: Record<string, string | number>,
-): Promise<{ ok: true; params: Record<string, string | number> } | { ok: false; error: string }> {
-  const resp = await panelSend<{ params: Record<string, string | number> }>(
+  params: Record<string, string | number | boolean>,
+): Promise<{ ok: true; params: Record<string, string | number | boolean> } | { ok: false; error: string }> {
+  const resp = await panelSend<{ params: Record<string, string | number | boolean> }>(
     'PUT',
     `/xiaocan/accounts/${accountId}/automation/${encodeURIComponent(taskKey)}/params`,
     { params },

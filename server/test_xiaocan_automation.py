@@ -29,11 +29,11 @@ class CatalogTests(unittest.TestCase):
             self.assertTrue(task.get("feature"), task["key"])
             self.assertTrue(task.get("script", "").endswith(".py"), task["key"])
 
-    def test_builtin_tasks_have_daily_at(self) -> None:
+    def test_builtin_tasks_have_schedule(self) -> None:
         for task in auto.TASKS:
             if task["executor"] != "builtin":
                 continue
-            self.assertTrue(task.get("daily_at"), task["key"])
+            self.assertTrue(task.get("daily_at") or task.get("slots"), task["key"])
 
     def test_param_defs_only_on_builtin(self) -> None:
         """脚本任务的参数在脚本里写死，给表单就是假的。"""
@@ -129,7 +129,12 @@ class ParamTests(unittest.TestCase):
     def test_defaults_from_defs(self) -> None:
         task = auto.BY_KEY["dual_rebate"]
         self.assertEqual(auto.default_params(task), {
-            "interval_minutes": 60, "scan_limit": 300, "keyword": "",
+            "interval_minutes": 60,
+            "active_hours_only": True,
+            "confirm_removal": True,
+            "max_stores": 300,
+            "keyword": "",
+            "notify_on_initial": True,
         })
 
     def test_slots_follow_interval_param(self) -> None:
@@ -140,6 +145,14 @@ class ParamTests(unittest.TestCase):
         half = auto._slots_of(task, {"interval_minutes": 30})
         self.assertIn("09:30", half)
         self.assertGreater(len(half), len(hourly))
+
+    def test_flash_sale_has_three_rounds(self) -> None:
+        task = auto.BY_KEY["flash_sale"]
+        self.assertEqual(auto._slots_of(task, {}), ["09:00", "14:00", "18:00"])
+
+    def test_redpack_rain_has_six_rounds(self) -> None:
+        task = auto.BY_KEY["redpack_rain"]
+        self.assertEqual(len(auto._slots_of(task, {})), 6)
 
     def test_single_daily_task_has_one_slot(self) -> None:
         task = auto.BY_KEY["vip_sign"]

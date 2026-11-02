@@ -182,7 +182,7 @@ const ParamDialog = (props: {
   onSaved: (text: string) => void;
 }) => {
   const [defs, setDefs] = useState<ParamDef[]>([]);
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Record<string, string | boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -201,7 +201,12 @@ const ParamDialog = (props: {
       }
       setDefs(result.defs);
       setValues(Object.fromEntries(
-        result.defs.map(item => [item.key, String(result.params[item.key] ?? item.def ?? '')]),
+        result.defs.map(item => [
+          item.key,
+          item.type === 'check'
+            ? Boolean(result.params[item.key] ?? item.def)
+            : String(result.params[item.key] ?? item.def ?? ''),
+        ]),
       ));
     })();
     return () => {
@@ -212,10 +217,16 @@ const ParamDialog = (props: {
   const save = async () => {
     setSaving(true);
     setError('');
-    const payload: Record<string, string | number> = {};
+    const payload: Record<string, string | number | boolean> = {};
     for (const def of defs) {
-      const raw = values[def.key] ?? '';
-      payload[def.key] = def.type === 'int' ? Number(raw) : raw;
+      const raw = values[def.key];
+      if (def.type === 'check') {
+        payload[def.key] = Boolean(raw);
+      } else if (def.type === 'int' || def.type === 'number') {
+        payload[def.key] = Number(raw ?? 0);
+      } else {
+        payload[def.key] = String(raw ?? '');
+      }
     }
     const result = await saveAutomationParamsAction(props.accountId, props.task.key, payload);
     setSaving(false);
@@ -286,44 +297,59 @@ const ParamDialog = (props: {
           {!loading && defs.map((def) => {
             const id = `param-${def.key}`;
             return (
-              <label
-                key={def.key}
-                htmlFor={id}
-                className="flex flex-col gap-1 text-sm"
-              >
-                <span className="font-medium">{def.label}</span>
-                {def.type === 'select'
+              <div key={def.key} className="flex flex-col gap-1 text-sm">
+                <label htmlFor={id} className="font-medium">{def.label}</label>
+                {def.type === 'check'
                   ? (
-                      <select
-                        id={id}
-                        value={values[def.key] ?? ''}
-                        onChange={event => setValues(prev => ({ ...prev, [def.key]: event.target.value }))}
-                        className="
-                          h-9 rounded-md border bg-background px-2 text-sm
-                        "
+                      <label className="
+                        flex items-center gap-2 rounded-md border px-3 py-2
+                      "
                       >
-                        {(def.options ?? []).map(option => (
-                          <option key={String(option.value)} value={String(option.value)}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
+                        <input
+                          id={id}
+                          type="checkbox"
+                          checked={Boolean(values[def.key])}
+                          onChange={event => setValues(prev => ({ ...prev, [def.key]: event.target.checked }))}
+                          className="size-4"
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {values[def.key] ? '已开启' : '已关闭'}
+                        </span>
+                      </label>
                     )
-                  : (
-                      <input
-                        id={id}
-                        type={def.type === 'int' ? 'number' : 'text'}
-                        min={def.min}
-                        max={def.max}
-                        value={values[def.key] ?? ''}
-                        onChange={event => setValues(prev => ({ ...prev, [def.key]: event.target.value }))}
-                        className="
-                          h-9 rounded-md border bg-background px-2 text-sm
-                        "
-                      />
-                    )}
+                  : def.type === 'select'
+                    ? (
+                        <select
+                          id={id}
+                          value={String(values[def.key] ?? '')}
+                          onChange={event => setValues(prev => ({ ...prev, [def.key]: event.target.value }))}
+                          className="
+                            h-9 rounded-md border bg-background px-2 text-sm
+                          "
+                        >
+                          {(def.options ?? []).map(option => (
+                            <option key={String(option.value)} value={String(option.value)}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    : (
+                        <input
+                          id={id}
+                          type={def.type === 'number' || def.type === 'int' ? 'number' : 'text'}
+                          min={def.min}
+                          max={def.max}
+                          step={def.step}
+                          value={String(values[def.key] ?? '')}
+                          onChange={event => setValues(prev => ({ ...prev, [def.key]: event.target.value }))}
+                          className="
+                            h-9 rounded-md border bg-background px-2 text-sm
+                          "
+                        />
+                      )}
                 {def.hint && <span className="text-xs text-muted-foreground">{def.hint}</span>}
-              </label>
+              </div>
             );
           })}
         </div>
@@ -357,82 +383,6 @@ const ParamDialog = (props: {
   );
 };
 
-const GroupSection = (props: {
-  group: AutomationGroup;
-  accounts: Array<{ id: number; nickname: string; account_info: string }>;
-  activeAccountId: number;
-  pending: string;
-  defaultOpen: boolean;
-  onToggle: (task: AutomationTask, enabled: boolean) => Promise<void>;
-  onOpenParams: (task: AutomationTask) => void;
-}) => {
-  const [open, setOpen] = useState(props.defaultOpen);
-  const enabledCount = props.group.tasks.filter(
-    task => task.enabled_account_ids.includes(props.activeAccountId),
-  ).length;
-
-  return (
-    <section className="rounded-lg border bg-card brand-shadow">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        className="
-          flex w-full items-center justify-between gap-3 px-4 py-3 text-left
-          hover:bg-muted/30
-        "
-      >
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="text-sm font-semibold">{props.group.label}</span>
-          <span className="text-xs text-muted-foreground">{`${props.group.tasks.length} 项`}</span>
-          <span className="
-            rounded-sm bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground
-          "
-          >
-            当前账号
-            {' '}
-            {enabledCount}
-            {' '}
-            /
-            {props.group.tasks.length}
-          </span>
-        </div>
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="
-            hidden
-            sm:inline
-          "
-          >
-            {props.group.hint}
-          </span>
-          <span aria-hidden>{open ? '收起 ▴' : '展开 ▾'}</span>
-        </span>
-      </button>
-
-      {open && (
-        <div className="
-          grid gap-3 border-t p-4
-          sm:grid-cols-2
-          xl:grid-cols-3
-        "
-        >
-          {props.group.tasks.map(task => (
-            <TaskCard
-              key={task.key}
-              task={task}
-              accounts={props.accounts}
-              activeAccountId={props.activeAccountId}
-              pending={props.pending === task.key}
-              onToggle={props.onToggle}
-              onOpenParams={props.onOpenParams}
-            />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-};
-
 export const XiaocanAutomation = (props: {
   accounts: Array<{ id: number; nickname: string; account_info: string }>;
 }) => {
@@ -441,6 +391,7 @@ export const XiaocanAutomation = (props: {
   const [pending, setPending] = useState('');
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [editing, setEditing] = useState<AutomationTask | null>(null);
+  const [activeTab, setActiveTab] = useState<AutomationGroup['key']>('member');
 
   const load = useCallback(async () => {
     const result = await fetchAutomationAction();
@@ -484,6 +435,8 @@ export const XiaocanAutomation = (props: {
   };
 
   const groups = data?.groups ?? [];
+  // 左右切换：一次只显示一个分组，避免三组卡片一屏堆到底
+  const activeGroup = groups.find(group => group.key === activeTab) ?? groups[0];
   const totals = useMemo(() => groups.map(group => ({
     key: group.key,
     label: group.label,
@@ -568,18 +521,73 @@ export const XiaocanAutomation = (props: {
         )}
       </Card>
 
-      {groups.map((group, index) => (
-        <GroupSection
-          key={group.key}
-          group={group}
-          accounts={accounts}
-          activeAccountId={activeAccountId}
-          pending={pending}
-          defaultOpen={index === 0}
-          onToggle={toggle}
-          onOpenParams={setEditing}
-        />
-      ))}
+      {groups.length > 0 && (
+        <Card>
+          <div className="flex flex-wrap items-center gap-1 border-b pb-2">
+            {groups.map((group) => {
+              const enabledCount = group.tasks.filter(
+                task => task.enabled_account_ids.includes(activeAccountId),
+              ).length;
+              const active = group.key === activeTab;
+              return (
+                <button
+                  key={group.key}
+                  type="button"
+                  onClick={() => setActiveTab(group.key)}
+                  aria-pressed={active}
+                  className={`
+                    rounded-md px-3 py-1.5 text-sm font-medium transition-colors
+                    ${active
+                  ? 'bg-brand-gradient text-white shadow-sm'
+                  : `
+                    text-muted-foreground
+                    hover:bg-muted
+                  `}
+                  `}
+                >
+                  {group.label}
+                  {' ('}
+                  {group.tasks.length}
+                  )
+                  <span className={`
+                    ml-1.5 text-[11px]
+                    ${active ? 'text-white/80' : 'text-muted-foreground'}
+                  `}
+                  >
+                    {enabledCount}
+                    /
+                    {group.tasks.length}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {activeGroup && (
+            <>
+              <p className="mt-2 text-xs text-muted-foreground">{activeGroup.hint}</p>
+              <div className="
+                mt-3 grid gap-3
+                sm:grid-cols-2
+                xl:grid-cols-3
+              "
+              >
+                {activeGroup.tasks.map(task => (
+                  <TaskCard
+                    key={task.key}
+                    task={task}
+                    accounts={accounts}
+                    activeAccountId={activeAccountId}
+                    pending={pending === task.key}
+                    onToggle={toggle}
+                    onOpenParams={setEditing}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </Card>
+      )}
 
       {editing && activeAccountId > 0 && (
         <ParamDialog

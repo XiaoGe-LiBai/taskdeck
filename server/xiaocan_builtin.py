@@ -144,13 +144,78 @@ def free_lottery(account: dict, params: dict) -> str:
     return f"领到 {claimed} 个机会，开了 {opened} 次"
 
 
+def redpack_rain(account: dict, params: dict) -> str:
+    """整点红包雨：接入场次 → 拟真等待 → 按 click_num ± jitter 上报结算。"""
+    click = _num(params.get("click_num"), 15) or 15
+    jitter = max(0, _num(params.get("jitter"), 5))
+    wait = max(10, _num(params.get("game_wait_sec"), 28))
+
+    event_id = None
+    try:
+        info = _call(account, "get_redpack_rain_event", {})
+        event = (info.get("event") or {}) if isinstance(info, dict) else {}
+        event_id = event.get("event_id") or info.get("event_id")
+    except Exception:
+        event_id = None  # 上游这个接口时好时坏，拿不到就按「直接上报」走
+
+    join_body = {"event_id": event_id} if event_id else {}
+    _call(account, "join_redpack_rain", join_body)
+    time.sleep(wait)  # 模拟红包下落与交互，太快上报反而异常
+    submit = click + random.randint(-jitter, jitter)
+    submit = max(1, submit)
+    grab_body = {"click_num": submit}
+    if event_id:
+        grab_body["event_id"] = event_id
+    _call(account, "grab_redpack_rain", grab_body)
+    return f"已上报抓取 {submit} 个红包"
+
+
+def flash_sale(account: dict, params: dict) -> str:
+    """元宝秒杀抢券：拉当日在架商品 → 选目标 → 兑换。
+
+    商品 ID 留空时自动优选「剩余库存最多」的一款，避免默认挑到已抢光的。
+    """
+    want = str(params.get("goods_ids") or "").strip()
+    wanted_ids = [int(part.strip()) for part in want.split(",") if part.strip().isdigit()]
+
+    # 上游必须带 new_level（会员等级），少这个参数直接 [2] 参数错误
+    body = {
+        "is_plus": bool(account.get("is_plus")),
+        "new_level": _num(account.get("vip_level"), 5) or 5,
+    }
+    result = _call(account, "list_flash_sale_exchanges", body)
+    listing = result.get("list") or {}
+    items = listing.get("vip") or []
+    if not items:
+        return "今日商城暂无在架秒杀商品"
+
+    target = None
+    for item in items:
+        if wanted_ids and item.get("exchange_id") in wanted_ids:
+            target = item
+            break
+    if not target:
+        candidates = [item for item in items if _num(item.get("left")) > 0]
+        if candidates:
+            target = max(candidates, key=lambda item: _num(item.get("left")))
+        else:
+            target = items[0]
+
+    exchange_id = target.get("exchange_id")
+    name = target.get("goods_name") or f"商品#{exchange_id}"
+    cost = _num(target.get("community_silk"))
+    left = _num(target.get("left"))
+    _call(account, "today_exchange", {"exchange_id": exchange_id})
+    return f"兑换成功：{name}（消耗 {cost} 元宝，场次剩余 {left}）"
+
+
 def dual_rebate(account: dict, params: dict) -> str:
     """同店双返利巡检：按参数扫附近门店，同店出现多个方案就推送。"""
     scan_params = {
         "lat": params.get("lat") or account.get("latitude") or "",
         "lon": params.get("lon") or account.get("longitude") or "",
         "city_code": params.get("city_code") or account.get("city_code") or "",
-        "limit": max(20, min(_num(params.get("scan_limit"), 300), 500)),
+        "limit": max(20, min(_num(params.get("max_stores"), 300), 800)),
         "keyword": str(params.get("keyword") or "").strip(),
     }
     if not (scan_params["lat"] and scan_params["lon"]):
@@ -176,6 +241,8 @@ RUNNERS: dict[str, Callable[[dict, dict], str]] = {
     "daily_earn": daily_earn,
     "vip_sign": vip_sign,
     "free_lottery": free_lottery,
+    "redpack_rain": redpack_rain,
+    "flash_sale": flash_sale,
     "dual_rebate": dual_rebate,
 }
 

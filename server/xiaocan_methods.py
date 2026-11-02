@@ -89,6 +89,8 @@ METHODS: dict[str, tuple[str, str]] = {
 
 
 # 少数接口的 app_id 与活动类不同：提交单号走 App 20
+DEFAULT_CITY_CODE = 440303
+
 APP_ID_OVERRIDES: dict[str, int] = {
     "submit_platform_order_id": 20,
 }
@@ -120,5 +122,11 @@ def call(account: dict, key: str, body: dict[str, Any] | None = None, *,
         silk_id=silk_id,
         token=token,
         app_id=app_id,
-        city_code=city_code if city_code is not None else account.get("city_code"),
+        # 上游部分接口（红包雨、元宝秒杀）没有 x-City / x-CityCode 就报「参数错误」，
+        # 账号没存城市时兜底深圳（与开源版默认 city_code=440303 一致）。
+        city_code=(
+            city_code
+            if city_code is not None
+            else (account.get("city_code") or DEFAULT_CITY_CODE)
+        ),
     )

@@ -87,13 +87,63 @@ TASKS: list[dict] = [
     {
         "key": "redpack_rain",
         "label": "整点红包雨",
-        "tip": "每日多场整点放量，自动接入场次并高频抓取额度",
+        "tip": "每日六场整点放量红包雨自动接入与高频额度抓取",
         "category": "member",
         "vip": "",
-        "time_label": "四场 07:59 / 09:59 / 10:59 / 11:59",
-        "executor": "script",
-        "feature": "红包雨",
-        "script": "小蚕红包雨.py",
+        "time_label": "六场 10:00 / 11:00 / 12:00 / 14:00 / 16:00 / 19:00",
+        "executor": "builtin",
+        "slots": ["09:59", "10:59", "11:59", "13:59", "15:59", "18:59"],
+        "param_defs": [
+            {
+                "key": "click_num",
+                "label": "上报抓取点击数",
+                "type": "number",
+                "def": 15,
+                "step": 1,
+                "min": 1,
+                "max": 99,
+                "hint": "模拟在红包雨过程中成功点击并抓取的红包数量（参考默认值 15）",
+            },
+            {
+                "key": "jitter",
+                "label": "点击随机抖动值",
+                "type": "number",
+                "def": 5,
+                "step": 1,
+                "min": 0,
+                "max": 20,
+                "hint": "实际提交数量将在 click_num ± jitter 之间浮动（如 10~20 次），拟真防风控",
+            },
+            {
+                "key": "game_wait_sec",
+                "label": "雨落拟真等待时长（秒）",
+                "type": "number",
+                "def": 28,
+                "step": 1,
+                "min": 10,
+                "max": 45,
+                "hint": "成功接入场次后模拟红包下落和交互等待的时间（实测约 28~35 秒）后再上报结算",
+            },
+        ],
+    },
+    {
+        "key": "flash_sale",
+        "label": "元宝秒杀抢券",
+        "tip": "元宝商城限量秒杀，每日 09:00 / 14:00 / 18:00 放量；留空商品 ID 会自动挑剩余库存最多的一款",
+        "category": "member",
+        "vip": "",
+        "time_label": "三场 09:00 / 14:00 / 18:00",
+        "executor": "builtin",
+        "slots": ["09:00", "14:00", "18:00"],
+        "param_defs": [
+            {
+                "key": "goods_ids",
+                "label": "秒杀商品 ID（逗号分隔）",
+                "type": "text",
+                "def": "",
+                "hint": "指定优先秒杀的商品/券 ID，留空则自动优选在场次内剩余库存最多的一款",
+            },
+        ],
     },
     # ---------------- 日常任务 ----------------
     {
@@ -152,16 +202,13 @@ TASKS: list[dict] = [
         "param_defs": [
             {
                 "key": "draw_sec",
-                "label": "开红包间隔（秒）",
-                "type": "select",
-                "def": 0.8,
-                "options": [
-                    {"label": "0.5 秒（最快，风险略高）", "value": 0.5},
-                    {"label": "0.8 秒（推荐）", "value": 0.8},
-                    {"label": "1.5 秒", "value": 1.5},
-                    {"label": "3 秒（最保守）", "value": 3},
-                ],
-                "hint": "相邻两次开红包之间的等待，太快容易触发平台频控",
+                "label": "转盘抽奖间隔秒数",
+                "type": "number",
+                "def": 0.35,
+                "step": 0.05,
+                "min": 0.1,
+                "max": 5.0,
+                "hint": "每次抽奖间隔时间（建议 0.2~0.5 秒），兼顾极速执行与拟真防风控",
             },
         ],
     },
@@ -200,16 +247,21 @@ TASKS: list[dict] = [
         "daily_at": "08:00",
         "param_defs": [
             {
-                "key": "days",
-                "label": "提前天数",
-                "type": "select",
+                "key": "warn_days",
+                "label": "提前预警天数",
+                "type": "number",
                 "def": 3,
-                "options": [
-                    {"label": "提前 1 天", "value": 1},
-                    {"label": "提前 3 天", "value": 3},
-                    {"label": "提前 7 天", "value": 7},
-                ],
-                "hint": "到期前多少天开始提醒；留太短可能来不及重新扫码",
+                "step": 1,
+                "min": 0,
+                "max": 30,
+                "hint": "凭据剩余有效天数小于等于此值时触发预警",
+            },
+            {
+                "key": "jwt_check",
+                "label": "核验 JWT 有效期",
+                "type": "check",
+                "def": True,
+                "hint": "主动解码并核验小蚕 JWT 真实生命周期",
             },
         ],
     },
@@ -225,16 +277,14 @@ TASKS: list[dict] = [
         "daily_at": "08:30",
         "param_defs": [
             {
-                "key": "days",
-                "label": "提前天数",
-                "type": "select",
-                "def": 7,
-                "options": [
-                    {"label": "提前 1 天", "value": 1},
-                    {"label": "提前 3 天", "value": 3},
-                    {"label": "提前 7 天", "value": 7},
-                ],
-                "hint": "卡券与红包到期前多少天开始提醒",
+                "key": "warn_hours",
+                "label": "提前预警小时数",
+                "type": "number",
+                "def": 168,
+                "step": 1,
+                "min": 1,
+                "max": 720,
+                "hint": "券过期前多少小时发送到期提醒（168 = 7 天）",
             },
         ],
     },
@@ -250,7 +300,7 @@ TASKS: list[dict] = [
         "param_defs": [
             {
                 "key": "interval_minutes",
-                "label": "巡检间隔",
+                "label": "固定时间段",
                 "type": "select",
                 "def": 60,
                 "options": [
@@ -258,23 +308,45 @@ TASKS: list[dict] = [
                     {"label": "1 小时", "value": 60},
                     {"label": "2 小时", "value": 120},
                 ],
-                "hint": "09:00 到 23:00 之间按此间隔巡检；频率过高容易触发平台风控",
+                "hint": "固定巡检时段：默认 1 小时，可选 30 分钟或 2 小时。频率过高易触发平台风控",
             },
             {
-                "key": "scan_limit",
-                "label": "扫描商户上限",
-                "type": "int",
+                "key": "active_hours_only",
+                "label": "仅在营业时段巡检",
+                "type": "check",
+                "def": True,
+                "hint": "开启后仅在营业时段运行，夜间自动休眠静默，防风控与打扰",
+            },
+            {
+                "key": "confirm_removal",
+                "label": "下架二次核验保护",
+                "type": "check",
+                "def": True,
+                "hint": "商户缺失时连续 2 轮巡检均未检出才确认为已下架，杜绝接口偶发异常导致的误报",
+            },
+            {
+                "key": "max_stores",
+                "label": "扫描商户范围上限",
+                "type": "number",
                 "def": 300,
-                "min": 20,
-                "max": 500,
-                "hint": "按距离由近及远扫描的商户数上限，建议 200-500",
+                "step": 50,
+                "min": 100,
+                "max": 800,
+                "hint": "按距离由近及远流式扫描的美团商户数上限，建议 200 至 500 家",
             },
             {
                 "key": "keyword",
                 "label": "关键词优先过滤",
                 "type": "text",
                 "def": "",
-                "hint": "只关注包含该关键词的店；留空则扫整个商圈",
+                "hint": "指定优先扫描的品类或品牌关键词，留空则扫描全商圈",
+            },
+            {
+                "key": "notify_on_initial",
+                "label": "首轮全量基准推送",
+                "type": "check",
+                "def": True,
+                "hint": "任务开启或跨天重置后的第一轮扫描，是否推送完整基准商户清单",
             },
         ],
     },
@@ -370,9 +442,9 @@ def set_params(account_id: int, task_key: str, incoming: dict) -> dict:
     for key, item in spec.items():
         raw = incoming.get(key, item["def"])
         kind = item.get("type", "text")
-        if kind == "int":
+        if kind in ("int", "number"):
             try:
-                value = int(raw)
+                value = float(raw) if kind == "number" else int(raw)
             except (TypeError, ValueError):
                 raise ValueError(f"{item['label']} 必须是数字") from None
             low, high = item.get("min"), item.get("max")
@@ -380,6 +452,10 @@ def set_params(account_id: int, task_key: str, incoming: dict) -> dict:
                 raise ValueError(f"{item['label']} 不能小于 {low}")
             if high is not None and value > high:
                 raise ValueError(f"{item['label']} 不能大于 {high}")
+            if kind == "number" and float(value).is_integer():
+                value = int(value)  # 整数就别存成 15.0
+        elif kind == "check":
+            value = bool(raw) if isinstance(raw, bool) else str(raw).lower() in ("1", "true", "on", "yes")
         elif kind == "select":
             allowed = [opt["value"] for opt in item.get("options") or []]
             try:
@@ -497,6 +573,8 @@ def _slots_of(task: dict, params: dict) -> list[str]:
             slots.append(f"{cursor // 60:02d}:{cursor % 60:02d}")
             cursor += step
         return slots
+    if task.get("slots"):
+        return list(task["slots"])
     if task.get("daily_at"):
         return [task["daily_at"]]
     return []
@@ -575,7 +653,7 @@ def credential_reminders() -> str:
 
     lines = []
     for row in _enabled_accounts_for("credential_remind"):
-        days = int(task_params(row["id"], "credential_remind").get("days") or 3)
+        days = int(task_params(row["id"], "credential_remind").get("warn_days") or 3)
         expire = core.parse_iso(row.get("token_expire"))
         if not expire or expire > core.now_dt() + timedelta(days=days):
             continue
@@ -596,8 +674,8 @@ def coupon_reminders() -> str:
 
     lines = []
     for account in _enabled_accounts_for("coupon_remind"):
-        days = int(task_params(account["id"], "coupon_remind").get("days") or 7)
-        horizon = time.time() + days * 86400
+        hours = int(task_params(account["id"], "coupon_remind").get("warn_hours") or 168)
+        horizon = time.time() + hours * 3600
         try:
             result = xiaocan_console.overview(account, ("cards", "redpacks"))
         except Exception:

@@ -37,8 +37,14 @@ import vip
 XC_RPC_URL = "https://gw.xiaocantech.com/rpc"
 XC_RPC_BACKUP_URL = "https://gwh.xiaocantech.com/rpc"
 XC_APP_ID = 25
-XC_APP_VERSION = "3.16.9.0"
-XC_UA = "XC;iOS;3.16.9"
+# 协议版本对齐官方 App 3.21.1（Android）。
+# 旧版 iOS 3.16.9 的头部调用新接口会被判「参数错误」：
+# 红包雨 Join/Grab 返回 [10001]、元宝秒杀 ListFlashSaleExchanges 返回 [2]，
+# 换成 3.21.1 的完整头部后同一个 body 就能正常返回商品列表。
+XC_APP_VERSION = "3.21.1"
+XC_UA = "XiaoCan/3.21.1 (Linux; U; Android 14; zh-cn; Mobile) okhttp/4.12.0"
+XC_MODEL = "Android Phone"
+XC_CHANNEL = "xiaocan"
 
 BIND_LINE_RE = re.compile(r"^\s*([^#@]*)#([^#@]+)#([^#@]+)#([^#@\s]+)\s*$")
 
@@ -794,22 +800,26 @@ def xiaocan_rpc(
     data = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
 
     last_error = ""
+    waf_hit = False
     for url in (XC_RPC_URL, XC_RPC_BACKUP_URL):
         host = urllib.parse.urlparse(url).netloc
         x_nami, x_garen, x_ashe = _xc_sign(server, method, str(silk_id))
         headers = {
             "Host": host,
             "appid": str(app_id),
+            "x-app-sr": str(app_id),
             "content-type": "application/json",
-            "accept": "*/*",
-            "accept-language": "zh-Hans-CN;q=1.0",
+            "accept": "application/json, text/plain, */*",
+            "accept-language": "zh-CN,zh;q=0.9",
             "user-agent": XC_UA,
             "version": XC_APP_VERSION,
             "x-version": XC_APP_VERSION,
+            "x-channel": XC_CHANNEL,
+            "x-model": XC_MODEL,
             "servername": server,
             "methodname": method,
             "x-annie": "XC",
-            "x-platform": "iOS",
+            "x-platform": "Android",
             "x-vayne": str(user_id or "0"),
             "x-teemo": str(silk_id or "0"),
             "x-sivir": token or "",
@@ -819,6 +829,11 @@ def xiaocan_rpc(
         }
         if city_code:
             headers["x-City"] = str(int(city_code))
+            headers["x-citycode"] = str(int(city_code))
+        if token:
+            # 新版协议同时认 Authorization 与 token 头，缺一个部分接口会判未授权
+            headers["authorization"] = f"Bearer {token}"
+            headers["token"] = token
         try:
             resp = requests.post(url, headers=headers, data=data, timeout=25)
         except Exception as exc:
@@ -828,11 +843,11 @@ def xiaocan_rpc(
             raise RuntimeError("小蚕凭据已失效（HTTP 401），请重新扫码绑定")
         if resp.status_code == 403:
             if _looks_like_waf(resp):
-                seconds = mark_waf_blocked()
-                raise RuntimeError(
-                    f"被官方 WAF 拦截（HTTP 403），已进入 {seconds} 秒熔断冷却；"
-                    "常见原因是代理/VPN/TUN 或当前 IP 频次超限"
-                )
+                # 主域名被 WAF 拦不等于备源也被拦：先试下一个域名，全都拦了才熔断。
+                # 否则一次主域名 403 就会让整站停摆 15 秒，备源白白浪费。
+                waf_hit = True
+                last_error = f"{host} 被 WAF 拦截（HTTP 403）"
+                continue
             raise RuntimeError("小蚕网关拦截（HTTP 403），请稍后重试或降低频率")
         if resp.status_code >= 400:
             last_error = f"{host} HTTP {resp.status_code}"
@@ -848,6 +863,12 @@ def xiaocan_rpc(
             return res
         msg = status.get("msg") or status.get("message") or res.get("msg") or "未知错误"
         raise RuntimeError(f"{method} 业务错误：[{code}] {msg}")
+    if waf_hit:
+        seconds = mark_waf_blocked()
+        raise RuntimeError(
+            f"被官方 WAF 拦截（HTTP 403），已进入 {seconds} 秒熔断冷却；"
+            "常见原因是代理/VPN/TUN 或当前 IP 频次超限"
+        )
     raise RuntimeError(f"小蚕网关请求失败：{last_error}")
 
 
