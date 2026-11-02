@@ -96,10 +96,13 @@ const percentDesc = (item: StoreItem) => {
   return cap > 0 ? `返 ${rateText} · 最高 ¥${money(cap)}` : `返 ${rateText}`;
 };
 
-const leftOf = (item: StoreItem) => {
+/** 余量：上游比例返活动经常不带 left_number，缺字段代表「不限量」而不是「已领完」 */
+const leftOf = (item: StoreItem): number | null => {
   const left = item.left_number ?? item.left_num;
-  return typeof left === 'number' ? left : 0;
+  return typeof left === 'number' ? left : null;
 };
+
+const leftText = (value: number | null) => (value === null ? '不限' : String(value));
 
 const distanceText = (value: number) => {
   if (!value) {
@@ -129,6 +132,15 @@ const minutesUntil = (item: StoreItem) => {
     return 0;
   }
   return Math.max(0, Math.round((start - Date.now() / 1000) / 60));
+};
+
+/** 同店多档位余量汇总：全是 null 就返回 null（不限量） */
+const sumLeft = (plans: StoreItem[]): number | null => {
+  const values = plans.map(leftOf);
+  if (values.every(value => value === null)) {
+    return null;
+  }
+  return values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
 };
 
 const slotText = (item: StoreItem) =>
@@ -267,7 +279,7 @@ export const XiaocanSniping = (props: {
     const active = plans.find(plan => promoId(plan) === chosen) ?? plans[0]!;
     const id = promoId(active);
     const left = leftOf(active);
-    const soldOut = left <= 0;
+    const soldOut = left !== null && left <= 0;
     const state = windowOf(active);
     const busy = pending === `grab-${id}`;
 
@@ -284,7 +296,7 @@ export const XiaocanSniping = (props: {
           </div>
           <div className="flex items-center gap-1">
             <Tag tone={soldOut ? 'gray' : (kind === 'fixed' ? 'info' : 'success')}>
-              {soldOut ? '已领完' : `余 ${left} 份`}
+              {soldOut ? '已领完' : (left === null ? '不限量' : `余 ${left} 份`)}
             </Tag>
             {state === 'active' && !soldOut && (
               <button
@@ -378,11 +390,11 @@ export const XiaocanSniping = (props: {
                   `}
                 >
                   {`档位 ${index + 1}`}
-                  <span className={planLeft > 0
+                  <span className={(planLeft ?? 1) > 0
                     ? 'text-primary'
                     : `text-muted-foreground`}
                   >
-                    {planLeft > 0 ? `[余${planLeft}]` : '[无票]'}
+                    {planLeft === null ? '[不限]' : (planLeft > 0 ? `[余${planLeft}]` : '[无票]')}
                   </span>
                 </button>
               );
@@ -451,11 +463,11 @@ export const XiaocanSniping = (props: {
                         mt-1.5 flex flex-wrap items-center gap-1.5 text-xs
                       "
                       >
-                        <Tag tone={row.fixed.some(plan => leftOf(plan) > 0) ? 'info' : 'gray'}>
-                          {`实付剩 ${row.fixed.reduce((sum, plan) => sum + leftOf(plan), 0)} 单`}
+                        <Tag tone={row.fixed.some(plan => (leftOf(plan) ?? 1) > 0) ? 'info' : 'gray'}>
+                          {`实付剩 ${leftText(sumLeft(row.fixed))} 单`}
                         </Tag>
-                        <Tag tone={row.percent.some(plan => leftOf(plan) > 0) ? 'success' : 'gray'}>
-                          {`比例剩 ${row.percent.reduce((sum, plan) => sum + leftOf(plan), 0)} 单`}
+                        <Tag tone={row.percent.some(plan => (leftOf(plan) ?? 1) > 0) ? 'success' : 'gray'}>
+                          {`比例剩 ${leftText(sumLeft(row.percent))} 单`}
                         </Tag>
                       </div>
                       <div className="mt-1 text-[11px] text-muted-foreground">
