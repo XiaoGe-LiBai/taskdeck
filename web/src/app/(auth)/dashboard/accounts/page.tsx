@@ -12,6 +12,7 @@ import {
   toggleAccountStatusAction,
 } from '@/features/panel/actions';
 import { ActionForm, Collapsible, FeedbackButton } from '@/features/panel/Client';
+import { CopyCredentialButton } from '@/features/panel/CopyCredentialButton';
 import { ExpireEditor, StateForm } from '@/features/panel/ExpireEditor';
 import { OwnAccounts } from '@/features/panel/OwnAccounts';
 import {
@@ -255,6 +256,11 @@ export default async function AccountsPage(props: {
                             >
                               执行日常
                             </ActionForm>
+
+                            <CopyCredentialButton
+                              accountId={row.id}
+                              silkId={row.account_info}
+                            />
 
                             <ActionForm
                               action={deleteAccountAction}

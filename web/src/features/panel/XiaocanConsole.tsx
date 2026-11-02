@@ -3,6 +3,7 @@
 import type { XcOverview, XcOverviewSection } from './actions';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { callXiaocanAction, fetchXiaocanOverviewAction, runXiaocanDailyForAccountAction } from './actions';
+import { CopyCredentialButton } from './CopyCredentialButton';
 import { useGeoLocation } from './location/LocationContext';
 import { Card, Empty, StatCard, Tag } from './Ui';
 
@@ -234,6 +235,7 @@ export const XiaocanConsole = (props: {
                 </option>
               ))}
             </select>
+            <CopyCredentialButton accountId={activeAccountId} />
             <button
               type="button"
               disabled={busy}
