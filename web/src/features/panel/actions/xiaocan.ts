@@ -572,3 +572,27 @@ export async function runXiaocanDailyForAccountAction(
     .join('；');
   return { ok: resp.data.ok, msg: resp.data.ok ? '' : '部分步骤未成功', summary };
 }
+
+// ---------------------------------------------------------------- 小蚕凭据
+
+export type XcCredential = {
+  /** 四段串：备注#小蚕UserId#silk_id#token */
+  text: string;
+  nickname: string;
+  silk_id: string;
+  token_expire: string | null;
+};
+
+/** 取单个小蚕账号的凭据（可直接粘到开源版/其它工具导入）。 */
+export async function readXiaocanCredentialAction(
+  accountId: number,
+): Promise<{ ok: true; data: XcCredential } | { ok: false; error: string }> {
+  const resp = await panelSend<XcCredential>(
+    'GET',
+    `/xiaocan/accounts/${accountId}/credential`,
+  );
+  if (!resp.ok || !resp.data) {
+    return { ok: false, error: resp.msg || '读取小蚕凭据失败' };
+  }
+  return { ok: true, data: resp.data };
+}

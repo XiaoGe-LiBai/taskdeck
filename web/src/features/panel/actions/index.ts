@@ -119,6 +119,7 @@ export {
   fetchXiaocanOverviewAction,
   orderAction,
   pollMeituanAuthAction,
+  readXiaocanCredentialAction,
   resetWatchSeenAction,
   runAdminXiaocanDailyAction,
   runMyXiaocanDailyAction,
@@ -134,4 +135,4 @@ export {
   updateWatchAction,
 } from './xiaocan';
 
-export type { MeituanAccount, MeituanSession, StoreItem, StoresResult, StoreWatch, WatchHit, XcAction, XcActionParam, XcCardItem, XcDailyResult, XcDailyStep, XcOrder, XcOverview, XcOverviewSection, XcRedpackItem, XcTaskItem } from './xiaocan';
+export type { MeituanAccount, MeituanSession, StoreItem, StoresResult, StoreWatch, WatchHit, XcAction, XcActionParam, XcCardItem, XcCredential, XcDailyResult, XcDailyStep, XcOrder, XcOverview, XcOverviewSection, XcRedpackItem, XcTaskItem } from './xiaocan';

@@ -204,6 +204,24 @@ def serialize_account(account: dict, admin: bool = False) -> dict:
     return data
 
 
+def credential_line(account: dict) -> str:
+    """单个账号的「备注#小蚕UserId#silk_id#token」。
+
+    与 `account_data_text` 导出的每一行完全同格式，所以复制出来的串可以直接粘回
+    绑定框、或粘到开源版导入；两处各写一份迟早会漂移，这里只留一份实现。
+    """
+    token = str(account.get("access_token") or "").strip()
+    silk_id = str(account.get("account_info") or "").strip()
+    if not token or not silk_id:
+        raise ValueError("该账号缺少 silk_id 或 token，请重新绑定后再复制")
+    # 老数据可能没存 xc_user_id，从 token 里补（小蚕 token 的 payload 带 UserId）
+    user_id = str(account.get("xc_user_id") or "").strip() or token_user_id(token)
+    if not user_id:
+        raise ValueError("无法确定小蚕 UserId，请重新扫码绑定后再复制")
+    label = (account.get("remark") or account.get("nickname") or "").strip() or silk_id[-4:]
+    return f"{label}#{user_id}#{silk_id}#{token}"
+
+
 def account_data_text(skip_expired: bool = False) -> dict:
     """导出「备注#小蚕UserId#silk_id#token」，多账号 @ 分隔。"""
     rows = core.query(
@@ -221,7 +239,7 @@ def account_data_text(skip_expired: bool = False) -> dict:
         if skip_expired and row["token_expire"] and core.parse_iso(row["token_expire"]) and core.parse_iso(row["token_expire"]) < core.now_dt():
             skipped += 1
             continue
-        lines.append(f"{nickname}#{user_id}#{silk_id}#{token}")
+        lines.append(f"{nickname}#{user_id}#{silk_id}#{token}")  # 与 credential_line 同格式
     return {"text": "@".join(lines), "count": len(lines), "skipped": skipped}
 
 

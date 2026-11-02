@@ -7,6 +7,7 @@ import {
   grantUserProjectsAction,
   sendUserNotificationAction,
 } from './actions';
+import { CopyCredentialButton } from './CopyCredentialButton';
 import { fen, fmtTime, Tag } from './Ui';
 import { XiaocanAccountConsole } from './XiaocanAccountConsole';
 
@@ -466,6 +467,15 @@ export const UserDetailDrawer = ({ userId, onClose, onRefresh }: Props) => {
                                           {fName}
                                         </span>
                                       ))}
+                                    </div>
+                                    <div className="
+                                      mt-3 flex flex-wrap items-center gap-2
+                                    "
+                                    >
+                                      <CopyCredentialButton
+                                        accountId={acc.id}
+                                        silkId={acc.account_info}
+                                      />
                                     </div>
                                     <XiaocanAccountConsole
                                       account={{

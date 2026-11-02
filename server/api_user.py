@@ -1613,6 +1613,29 @@ def store_explore_api(account_id: int):
     return _store_reply(lambda: xiaocan_actions.explore_stores(account, **args))
 
 
+@bp.get("/xiaocan/accounts/<int:account_id>/credential")
+@core.require_login
+def xiaocan_account_credential(account_id: int):
+    """复制单个小蚕账号的凭据：`备注#小蚕UserId#silk_id#token`。
+
+    与管理员「账号数据」导出同一格式，可原样粘到开源版或其它工具里导入。
+    归属校验走 `_own_account`：普通用户只能取自己的，管理员可取任意账号。
+    """
+    account = _own_account(account_id)
+    if not account:
+        return core.fail("账号不存在")
+    try:
+        text = xc.credential_line(account)
+    except ValueError as exc:
+        return core.fail(str(exc))
+    return core.ok({
+        "text": text,
+        "nickname": (account.get("remark") or account.get("nickname") or "").strip(),
+        "silk_id": str(account.get("account_info") or "").strip(),
+        "token_expire": account.get("token_expire"),
+    })
+
+
 @bp.post("/xiaocan/accounts/<int:account_id>/daily")
 @core.require_login
 def run_own_daily_api(account_id: int):

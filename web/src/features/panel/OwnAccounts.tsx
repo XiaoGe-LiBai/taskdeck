@@ -10,6 +10,7 @@ import {
   toggleOwnFeatureAction,
 } from '@/features/panel/actions';
 import { ActionForm, Collapsible } from '@/features/panel/Client';
+import { CopyCredentialButton } from '@/features/panel/CopyCredentialButton';
 import { StateForm } from '@/features/panel/ExpireEditor';
 import { Card, Empty, fmtTime, Table, Tag, Td } from '@/features/panel/Ui';
 import { XiaocanAccountConsole } from '@/features/panel/XiaocanAccountConsole';
@@ -152,6 +153,8 @@ export const OwnAccounts = (props: { accounts: PanelAccount[] }) => {
                     >
                       执行日常
                     </ActionForm>
+
+                    <CopyCredentialButton accountId={row.id} silkId={row.account_info} />
 
                     <ActionForm
                       action={deleteAccountAction}
