@@ -102,12 +102,18 @@ export const StatCard = (props: {
   </SpotlightCard>
 );
 
+/**
+ * 状态徽章配色。
+ *
+ * 每个语义都要给 dark 变体：10% 透明底在深色页面上会被压暗，
+ * 600 系文字直接掉到对比度 1.4（实测），必须换成 300/400 系才读得清。
+ */
 const statusTone: Record<string, string> = {
-  success: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
-  danger: 'bg-red-500/10 text-red-600 border-red-500/20',
-  warning: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
-  info: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
-  gray: 'bg-muted text-muted-foreground border-border',
+  success: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:border-emerald-400/30 dark:bg-emerald-400/15 dark:text-emerald-300',
+  danger: 'border-red-500/20 bg-red-500/10 text-red-600 dark:border-red-400/30 dark:bg-red-400/15 dark:text-red-300',
+  warning: 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:border-amber-400/30 dark:bg-amber-400/15 dark:text-amber-300',
+  info: 'border-blue-500/20 bg-blue-500/10 text-blue-600 dark:border-blue-400/30 dark:bg-blue-400/15 dark:text-blue-300',
+  gray: 'border-border bg-muted text-muted-foreground',
 };
 
 export const Tag = (props: { tone?: keyof typeof statusTone; children: React.ReactNode }) => (
