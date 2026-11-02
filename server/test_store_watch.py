@@ -86,6 +86,22 @@ class ProbeTests(Base):
             found = watch.probe({"id": 1}, "dual", {"lat": 1, "lon": 2})
         self.assertEqual([f["title"] for f in found], ["同店"])
 
+    def test_dual_groups_keep_raw_items(self) -> None:
+        """双返利列表要保留原始活动字段，前端才能直接拿 promotion_id 抢单。"""
+        rows = [item("同店", promo="1", money=800), item("同店", promo="2", money=1500)]
+        with mock.patch("xiaocan_actions.feed_stores", return_value={"items": rows}):
+            groups = watch.dual_groups({"id": 1}, {"lat": 1, "lon": 2})
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0]["name"], "同店")
+        self.assertEqual(groups[0]["count"], 2)
+        self.assertEqual([row["promotion_id"] for row in groups[0]["items"]], ["1", "2"])
+        self.assertEqual(groups[0]["items"][0]["order_money"], 800)
+
+    def test_dual_groups_skip_single_promotion(self) -> None:
+        rows = [item("独店", promo="9")]
+        with mock.patch("xiaocan_actions.feed_stores", return_value={"items": rows}):
+            self.assertEqual(watch.dual_groups({"id": 1}, {"lat": 1, "lon": 2}), [])
+
     def test_error_surfaces_when_nothing_collected(self) -> None:
         """WAF 熔断这类错误不能被吞掉，否则界面只会看到「扫描 0 条」。"""
         with mock.patch("xiaocan_actions.feed_stores", side_effect=RuntimeError("WAF 熔断中")):

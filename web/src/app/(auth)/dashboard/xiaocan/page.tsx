@@ -5,6 +5,7 @@ import { WechatDirectPanel } from '@/features/panel/WechatDirectPanel';
 import { XiaocanAutomation } from '@/features/panel/XiaocanAutomation';
 import { XiaocanBindPanel } from '@/features/panel/XiaocanBindPanel';
 import { XiaocanConsole } from '@/features/panel/XiaocanConsole';
+import { XiaocanSniping } from '@/features/panel/XiaocanSniping';
 import { panelGet, panelMe } from '@/libs/PanelApi';
 
 /**
@@ -26,7 +27,7 @@ export default async function XiaoCanPage() {
     <>
       <PageTitle
         title="小蚕"
-        description="自动化任务、元宝资产与卡券都在这一页；任务按账号独立开关，改动即时生效"
+        description="霸王餐抢单与预约、每日任务与元宝资产都在这一页；任务按账号独立开关，改动即时生效"
         actions={(
           <div className="flex gap-2">
             <Link
@@ -56,6 +57,9 @@ export default async function XiaoCanPage() {
       />
 
       <div className="flex flex-col gap-6">
+        {/* 霸王餐在最前：每天第一件事是看附近有什么可抢的，再看任务开关 */}
+        <XiaocanSniping accounts={safeAccounts} />
+
         <XiaocanAutomation accounts={safeAccounts} />
 
         <XiaocanConsole accounts={safeAccounts} />

@@ -234,6 +234,32 @@ def _collect(account: dict, params: dict) -> list[dict]:
     return items
 
 
+def dual_groups(account: dict, params: dict) -> list[dict]:
+    """同店双返利扫描：按店名聚合，只保留有 2 个及以上方案的店。
+
+    与 probe 的 dual 分支共用同一份候选池，但这里保留原始活动字段
+    （promotion_id / order_money / left_number 等），前端才能直接抢单。
+    """
+    items = _collect(account, params)
+    grouped: dict[str, list[dict]] = {}
+    for item in items:
+        name = _store_name(item)
+        if name:
+            grouped.setdefault(name, []).append(item)
+
+    groups: list[dict] = []
+    for name, group in grouped.items():
+        if len(group) < 2:
+            continue
+        groups.append({
+            "name": name,
+            "count": len(group),
+            "items": group,
+        })
+    groups.sort(key=lambda item: item["count"], reverse=True)
+    return groups
+
+
 def probe(account: dict, kind: str, params: dict) -> list[dict]:
     """按监控类型筛出需要的条目，统一成 {key,title,detail}。"""
     keyword = str(params.get("keyword") or "").strip()

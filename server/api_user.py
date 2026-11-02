@@ -1681,6 +1681,27 @@ def store_search_api(account_id: int):
         account, request.args.get("q", ""), **args))
 
 
+@bp.get("/xiaocan/accounts/<int:account_id>/stores/dual-rebate")
+@core.require_login
+def xiaocan_stores_dual_api(account_id: int):
+    """同店多方案扫描：同一家店出现 2 个以上返利方案时列出来，前端可直接抢。"""
+    account = _own_account(account_id)
+    if not account:
+        return core.fail("账号不存在")
+    args = _store_args()
+    params = {
+        "lat": args.get("lat"),
+        "lon": args.get("lon"),
+        "city_code": args.get("city_code"),
+        "keyword": str(request.args.get("q") or "").strip(),
+    }
+    if not (params["lat"] and params["lon"]):
+        return core.fail("同店双返利扫描需要先设置定位")
+    return _store_reply(lambda: {
+        "stores": store_watch.dual_groups(account, params),
+    })
+
+
 @bp.get("/xiaocan/accounts/<int:account_id>/stores/explore")
 @core.require_login
 def store_explore_api(account_id: int):

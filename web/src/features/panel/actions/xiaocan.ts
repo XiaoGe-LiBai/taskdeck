@@ -135,6 +135,91 @@ export async function clearJobLogsAction(): Promise<string> {
   return `ok:已清空 ${resp.data?.cleared ?? 0} 条日志`;
 }
 
+export type DualRebateStore = {
+  name: string;
+  count: number;
+  items: StoreItem[];
+};
+
+/** 同店多方案扫描：同一家店出现 2 个以上返利方案时返回分组结果。 */
+export async function fetchDualRebateStoresAction(params: {
+  accountId: number;
+  lat: string;
+  lon: string;
+  cityCode: string;
+  q?: string;
+}): Promise<{ ok: boolean; msg: string; stores: DualRebateStore[] }> {
+  const query = new URLSearchParams({
+    lat: params.lat,
+    lon: params.lon,
+    city_code: params.cityCode,
+  });
+  if (params.q) {
+    query.set('q', params.q);
+  }
+  const resp = await panelSend<{ stores?: DualRebateStore[] }>(
+    'GET',
+    `/xiaocan/accounts/${params.accountId}/stores/dual-rebate?${query.toString()}`,
+  );
+  if (!resp.ok || !resp.data) {
+    return { ok: false, msg: resp.msg || '扫描失败', stores: [] };
+  }
+  return { ok: true, msg: '', stores: resp.data.stores ?? [] };
+}
+
+/** 直接抢单（不经表单）：返回可读结果，供列表里的按钮调用。 */
+export async function grabPromotionAction(params: {
+  accountId: number;
+  promotionId: string;
+  advance?: boolean;
+  lat?: string;
+  lon?: string;
+  cityCode?: string;
+  at?: string;
+}): Promise<{ ok: boolean; msg: string }> {
+  const payload: Record<string, unknown> = {
+    promotion_id: params.promotionId,
+    advance: Boolean(params.advance),
+    lat: params.lat || undefined,
+    lon: params.lon || undefined,
+    city_code: params.cityCode || undefined,
+  };
+  if (params.at) {
+    payload.at = params.at;
+  }
+  const resp = await panelSend<{ id: string; at: string }>(
+    'POST',
+    `/xiaocan/accounts/${params.accountId}/grab`,
+    payload,
+  );
+  if (!resp.ok || !resp.data) {
+    return { ok: false, msg: resp.msg || '提交失败' };
+  }
+  revalidatePath('/dashboard/xiaocan');
+  return { ok: true, msg: `已排队，计划 ${resp.data.at}` };
+}
+
+export type GrabJob = {
+  id: string;
+  account_id: number;
+  status?: string;
+  at?: string;
+  promotion_id?: string;
+  title?: string;
+};
+
+/** 预约与监听列表：进程内抢单任务 + 等级刷新开关。 */
+export async function fetchSchedulerAction(): Promise<{ ok: boolean; jobs: GrabJob[]; levelRefresh: boolean }> {
+  const resp = await panelSend<{ grab_jobs?: GrabJob[]; level_refresh?: boolean }>(
+    'GET',
+    '/xiaocan/scheduler',
+  );
+  if (!resp.ok || !resp.data) {
+    return { ok: false, jobs: [], levelRefresh: false };
+  }
+  return { ok: true, jobs: resp.data.grab_jobs ?? [], levelRefresh: Boolean(resp.data.level_refresh) };
+}
+
 /** 抢单/预约：at 为空立即抢；填 datetime-local 则到点触发。 */
 export async function scheduleGrabAction(_prev: string, formData: FormData): Promise<string> {
   const accountId = Number(formData.get('account_id') ?? 0);

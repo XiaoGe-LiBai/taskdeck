@@ -239,12 +239,22 @@ const ParamDialog = (props: {
   };
 
   return (
-    <div className="
-      fixed inset-0 z-50 flex items-start justify-center overflow-y-auto
-      bg-black/40 p-4 backdrop-blur-sm
-    "
-    >
-      <div className="mt-10 w-full max-w-xl rounded-lg border bg-card shadow-xl">
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {/* 遮罩：点空白处关闭，与开源版侧滑面板一致 */}
+      <button
+        type="button"
+        aria-label="关闭参数面板"
+        onClick={props.onClose}
+        className="
+          absolute inset-0 cursor-default bg-black/40 backdrop-blur-[2px]
+        "
+      />
+      <aside
+        className="
+          relative flex size-full max-w-md flex-col border-l bg-card shadow-2xl
+          transition-transform duration-200 ease-out
+        "
+      >
         <div className="
           flex items-start justify-between gap-4 border-b px-5 py-4
         "
@@ -272,7 +282,10 @@ const ParamDialog = (props: {
           </button>
         </div>
 
-        <div className="flex flex-col gap-4 px-5 py-4">
+        <div className="
+          flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4
+        "
+        >
           <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
             <span className="text-muted-foreground">任务说明：</span>
             {props.task.tip}
@@ -378,7 +391,7 @@ const ParamDialog = (props: {
             {saving ? '保存中…' : '保存参数'}
           </button>
         </div>
-      </div>
+      </aside>
     </div>
   );
 };
