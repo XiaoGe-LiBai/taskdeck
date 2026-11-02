@@ -18,7 +18,7 @@ export const UserMenu = (props: { email: string; nickname?: string; role?: strin
     }
     try {
       await navigator.clipboard.writeText(result.cookie);
-      setCopyState('已复制到剪贴板（等同账号密码，别外传）');
+      setCopyState('已复制本站登录 Cookie（等同面板密码，别外传）');
     } catch {
       // 非安全上下文（http）下 clipboard 不可用，退回让用户手动复制
       setCopyState(`复制失败，请手动复制：${result.cookie}`);
@@ -69,13 +69,16 @@ export const UserMenu = (props: { email: string; nickname?: string; role?: strin
           <button
             type="button"
             onClick={() => void copyCookie()}
-            title="把当前登录 Cookie 复制到剪贴板，可直接带到其它工具或调试用"
+            title="复制的是本站面板的登录状态，与小蚕账号无关"
             className="
               w-full rounded-sm p-2 text-left text-sm
               hover:bg-muted
             "
           >
-            复制登录 Cookie
+            <span className="block">复制本站登录 Cookie</span>
+            <span className="block text-xs text-muted-foreground">
+              面板登录状态，不是小蚕账号
+            </span>
           </button>
           {copyState && (
             <div className="px-2 pb-2 text-xs break-all text-muted-foreground">
