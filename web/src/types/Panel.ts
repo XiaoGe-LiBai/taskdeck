@@ -267,6 +267,8 @@ export type PanelSettings = {
   site_name: string;
   /** 站点对外地址（如 https://panel.example.com）。邮件里的 logo 与链接要用绝对地址 */
   site_url: string;
+  /** 天地图 Web 端 key：管理员配置后，全站定位/地址搜索都走它 */
+  tianditu_key?: string;
   /** "true" / "false"：是否启用自定义站点图标（单独由开关切换，不随主表单提交） */
   site_logo_enabled: string;
   /** 后端附带：有没有上传过图标文件（"true" / "false"） */

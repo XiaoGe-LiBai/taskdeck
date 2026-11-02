@@ -12,6 +12,7 @@ import {
   setWatchStatusAction,
   updateWatchAction,
 } from './actions';
+import { useGeoLocation } from './location/LocationContext';
 import { Card, Empty, Tag } from './Ui';
 
 const KIND_LABEL: Record<string, string> = {
@@ -35,9 +36,10 @@ const formatTime = (ts: number) =>
 export const WatchCard = (props: {
   watches: StoreWatch[];
   accounts: Array<{ id: number; nickname: string; account_info: string }>;
-  defaultLocation: { lat: string; lon: string; city: string };
 }) => {
   const [createState, createAction, creating] = useActionState(createWatchAction, '');
+  // 监控的位置跟全局定位走：一个号盯一个城市，没定位就别创建（否则盯的是错城市的名额）
+  const { location, open: openLocation } = useGeoLocation();
   const [delState, delAction] = useActionState(deleteWatchAction, '');
   const [rowMessage, setRowMessage] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState('');
@@ -93,6 +95,24 @@ export const WatchCard = (props: {
       title="店铺监控"
       description="只做发现与通知，不自动抢单；命中会推送到已配置的通知渠道"
     >
+      {!location && (
+        <div className="
+          mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md
+          border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs
+          text-amber-700
+          dark:text-amber-300
+        "
+        >
+          <span>未设置定位：监控会按城市匹配名额，请先设置再创建。</span>
+          <button
+            type="button"
+            onClick={openLocation}
+            className="rounded-md border border-amber-500/40 px-2 py-1"
+          >
+            去设置定位
+          </button>
+        </div>
+      )}
       <form
         action={createAction}
         className="
@@ -150,7 +170,7 @@ export const WatchCard = (props: {
         <div className="flex items-end">
           <button
             type="submit"
-            disabled={creating}
+            disabled={creating || !location}
             className="
               h-8 w-full rounded-md bg-brand-gradient px-3 text-xs font-semibold
               text-white
@@ -164,7 +184,7 @@ export const WatchCard = (props: {
           纬度
           <Input
             name="lat"
-            defaultValue={props.defaultLocation.lat}
+            defaultValue={location?.lat ?? ''}
             className="h-8 text-xs"
           />
         </label>
@@ -172,7 +192,7 @@ export const WatchCard = (props: {
           经度
           <Input
             name="lon"
-            defaultValue={props.defaultLocation.lon}
+            defaultValue={location?.lon ?? ''}
             className="h-8 text-xs"
           />
         </label>
@@ -180,7 +200,7 @@ export const WatchCard = (props: {
           城市码
           <Input
             name="city_code"
-            defaultValue={props.defaultLocation.city}
+            defaultValue={location?.cityCode ?? ''}
             className="h-8 text-xs"
           />
         </label>

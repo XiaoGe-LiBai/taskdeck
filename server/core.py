@@ -1006,6 +1006,9 @@ def get_settings() -> dict:
         "smtp_password": "",
         "smtp_sender": "",
         "smtp_from_name": DEFAULT_SITE_NAME,
+        # 天地图 Web 端 key（管理员配置，供全站定位/地址搜索使用）。
+        # 留空则定位只用「浏览器定位 + IP 归属地 + 内置城市表」的免费降级通道。
+        "tianditu_key": "",
     }
     for row in query("SELECT key, value FROM settings"):
         defaults[row["key"]] = row["value"]

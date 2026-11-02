@@ -1471,6 +1471,7 @@ def settings_put():
         "smtp_password",
         "smtp_sender",
         "smtp_from_name",
+        "tianditu_key",
     }
     # 通知渠道的键由 notify.CHANNELS 生成，避免两处维护
     secret_keys = set()

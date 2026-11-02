@@ -4,6 +4,7 @@ import type { StoreItem } from './actions';
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { fetchStoresAction } from './actions';
+import { useGeoLocation } from './location/LocationContext';
 import { Card, Empty, Tag } from './Ui';
 
 type Kind = 'feed' | 'search' | 'explore';
@@ -13,9 +14,6 @@ const TABS: Array<{ key: Kind; label: string; hint: string }> = [
   { key: 'search', label: '搜索店铺', hint: '输入店名关键词搜索' },
   { key: 'explore', label: '到店团购', hint: '到店/探店类团购霸王餐' },
 ];
-
-/** 默认定位：深圳福田（可在页面上改，不落库） */
-const DEFAULT_LOCATION = { lat: '22.5431', lon: '114.0579', city: '440303' };
 
 const text = (item: StoreItem, keys: string[]): string => {
   for (const key of keys) {
@@ -56,7 +54,7 @@ export const StoresExplorer = (props: {
   const [accountId, setAccountId] = useState(props.accounts[0]?.id ?? 0);
   const [kind, setKind] = useState<Kind>('feed');
   const [keyword, setKeyword] = useState('');
-  const [location, setLocation] = useState(DEFAULT_LOCATION);
+  const { location, open: openLocation } = useGeoLocation();
   const [offset, setOffset] = useState(0);
   const [items, setItems] = useState<StoreItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -72,6 +70,11 @@ export const StoresExplorer = (props: {
   }
 
   const load = async (nextOffset: number) => {
+    if (!location) {
+      setMessage('请先设置定位：系统不按默认城市查询，否则拿到的店和名额都是错的');
+      openLocation();
+      return;
+    }
     setPending(true);
     setMessage('');
     const result = await fetchStoresAction({
@@ -80,7 +83,7 @@ export const StoresExplorer = (props: {
       q: keyword,
       lat: location.lat,
       lon: location.lon,
-      cityCode: location.city,
+      cityCode: location.cityCode,
       offset: nextOffset,
     });
     setPending(false);
@@ -122,58 +125,41 @@ export const StoresExplorer = (props: {
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-sm font-medium">
-            纬度
-            <Input
-              value={location.lat}
-              onChange={e => setLocation(prev => ({ ...prev, lat: e.target.value }))}
-              className="h-9"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm font-medium">
-            经度
-            <Input
-              value={location.lon}
-              onChange={e => setLocation(prev => ({ ...prev, lon: e.target.value }))}
-              className="h-9"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm font-medium">
-            城市码
-            <Input
-              value={location.city}
-              onChange={e => setLocation(prev => ({ ...prev, city: e.target.value }))}
-              className="h-9"
-            />
-          </label>
-          <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (!navigator.geolocation) {
-                  setMessage('当前浏览器不支持定位，请手动填写经纬度');
-                  return;
-                }
-                navigator.geolocation.getCurrentPosition(
-                  (pos) => {
-                    setLocation(prev => ({
-                      ...prev,
-                      lat: pos.coords.latitude.toFixed(6),
-                      lon: pos.coords.longitude.toFixed(6),
-                    }));
-                    setMessage('已使用浏览器定位');
-                  },
-                  () => setMessage('定位被拒绝或不可用，请手动填写'),
-                  { timeout: 10000 },
-                );
-              }}
-              className="
-                h-9 rounded-md border px-3 text-xs
-                hover:bg-muted
-              "
-            >
-              使用我的定位
-            </button>
+          <div className="
+            flex flex-col gap-1 text-sm font-medium
+            sm:col-span-2
+            lg:col-span-2
+          "
+          >
+            当前定位
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`
+                rounded-md border px-2.5 py-1.5 text-xs
+                ${location
+      ? 'bg-muted/40'
+      : `
+        border-amber-500/40 bg-amber-500/10 text-amber-700
+        dark:text-amber-300
+      `}
+              `}
+              >
+                {location
+                  ? `${location.cityName} · ${location.addressName}（${location.cityCode}）`
+                  : '未设置定位'}
+              </span>
+              <button
+                type="button"
+                onClick={openLocation}
+                className="
+                  rounded-md border px-2.5 py-1.5 text-xs
+                  hover:bg-muted
+                "
+              >
+                {location ? '修改定位' : '获取本机定位 / 搜索商圈'}
+              </button>
+            </div>
+          </div>
+          <div className="flex items-end">
             <button
               type="button"
               disabled={pending}

@@ -3,6 +3,7 @@
 import type { XcOverview, XcOverviewSection } from './actions';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { callXiaocanAction, fetchXiaocanOverviewAction, runXiaocanDailyForAccountAction } from './actions';
+import { useGeoLocation } from './location/LocationContext';
 import { Card, Empty, StatCard, Tag } from './Ui';
 
 /**
@@ -16,15 +17,6 @@ import { Card, Empty, StatCard, Tag } from './Ui';
  */
 
 type Account = { id: number; nickname: string; account_info: string };
-
-const CITY_PRESETS = [
-  { code: '440303', name: '深圳·福田' },
-  { code: '440100', name: '广州' },
-  { code: '110100', name: '北京' },
-  { code: '310100', name: '上海' },
-  { code: '330100', name: '杭州' },
-  { code: '510100', name: '成都' },
-];
 
 const CATEGORY_TABS = ['全部', '免单卡', '影音卡', '品牌券', '其他卡券'];
 
@@ -69,7 +61,9 @@ export const XiaocanConsole = (props: {
 }) => {
   const compact = props.variant === 'compact';
   const [accountId, setAccountId] = useState(props.defaultAccountId ?? props.accounts[0]?.id ?? 0);
-  const [cityCode, setCityCode] = useState('440303');
+  // 定位统一取全局设置（顶栏可改）；没有定位时接口不带 x-City，交给后端按账号默认处理
+  const { location, open: openLocation } = useGeoLocation();
+  const cityCode = location?.cityCode ?? '';
   const [data, setData] = useState<XcOverview['data']>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -274,25 +268,24 @@ export const XiaocanConsole = (props: {
           lg:grid-cols-3
         "
         >
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
             定位（城市码）
-            <select
-              value={cityCode}
-              onChange={event => setCityCode(event.target.value)}
-              className="
-                h-8 rounded-md border bg-background px-2 text-sm text-foreground
-              "
-            >
-              {CITY_PRESETS.map(city => (
-                <option key={city.code} value={city.code}>
-                  {city.name}
-                  （
-                  {city.code}
-                  ）
-                </option>
-              ))}
-            </select>
-          </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="h-8 text-sm text-foreground">
+                {location ? `${location.cityName}（${location.cityCode}）` : '未设置'}
+              </span>
+              <button
+                type="button"
+                onClick={openLocation}
+                className="
+                  rounded-md border px-2 py-1 text-xs
+                  hover:bg-muted
+                "
+              >
+                {location ? '修改' : '去设置'}
+              </button>
+            </div>
+          </div>
           <div className="flex flex-col gap-1 text-xs text-muted-foreground">
             账号昵称
             <span className="h-8 text-sm text-foreground">

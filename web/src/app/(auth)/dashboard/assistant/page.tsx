@@ -208,7 +208,6 @@ export default async function AssistantPage() {
         <WatchCard
           watches={watchData?.watches ?? []}
           accounts={accounts ?? []}
-          defaultLocation={{ lat: '22.5431', lon: '114.0579', city: '440303' }}
         />
       </div>
 

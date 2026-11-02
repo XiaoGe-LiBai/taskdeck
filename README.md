@@ -199,6 +199,50 @@ GET /api/xiaocan/accounts/<id>/overview?sections=profile,assets&city_code=440303
 - 「业务工具 → 小蚕」(`/dashboard/xiaocan`) 顶部工作台：资产指标、每日任务（可领取的单条领取）、未领取积分、签到历史、抽奖（抽一次 / 广告加次 / 额外次数）、整点红包雨（报名 / 抢）、外卖免单卡（状态 / 抢）、卡券包、红包列表；「执行日常」串行跑元宝签到 → 会员签到抽奖 → 任务总览。
 - 「账号管理」每个账号下方、「用户管理 → 用户详情 → 小蚕账号」每个账号卡片下方都有「资产与福利」折叠面板（compact 版，点开才拉数据）。
 
+### 定位（不设默认定位）
+
+系统**不设默认定位**：没有定位时附近霸王餐、抢单、店铺监控都会拦住并提示先设置，
+不会默默按某个城市查出一堆看起来正常、其实全错的数据。
+
+- 入口：顶栏「📍 设置定位」/ 页面顶部黄色提示条 / 各表单里的「去设置定位」；
+- 获取方式：浏览器本机定位（Geolocation）、网络 IP 归属地、搜索商圈/地标、经纬度微调；
+- 历史位置保存在浏览器本地（最多 6 条），定位只随请求传递，**不写数据库**；
+- 天地图 key 由管理员在「系统设置 → 天地图 Key」填写，**普通用户不需要也不能看到 key**，
+  所有检索都从后端 `/api/location/*` 代理；没填 key 时自动降级为
+  BigDataCloud 逆地理 + 内置城市表 + IP 归属地。
+
+```
+GET /api/location/search?q=深圳福田车公庙      地址/商圈/地标候选
+GET /api/location/resolve?lat=&lon=            逆地理（天地图 → BigDataCloud → 最近城市估算）
+GET /api/location/ip                           IP 归属地兜底
+```
+
+> HTTP 访问时浏览器会禁用 Geolocation（只有 HTTPS/localhost 算安全上下文），
+> 页面会明确提示改用 HTTPS 或走 IP/搜索；不要把它当成脚本 bug。
+
+### 电脑微信直连提 token
+
+与开源版同一原理：微信 PC 端的小程序引擎 `WeChatAppEx.exe` 会把小蚕的 JWT 留在进程内存里，
+读出来即可，不改代理、不装证书、不断网。区别在部署形态：
+
+- **服务端在 Windows**：`POST /api/xiaocan/wechat/scan` 就地扫描入库（和开源版一键完成一致）；
+- **服务端在 Linux 容器**（现网形态）：容器读不到你电脑上的微信进程，所以走配对码：
+  1. 面板「小蚕 → 绑定」点「生成配对码」（6 位，10 分钟有效，一次性）；
+  2. 「下载 Windows 脚本」——脚本里已内嵌面板地址与配对码，只依赖标准库；
+  3. 电脑微信先打开一次「小蚕霸王餐」小程序，再双击脚本；
+  4. 脚本扫内存 → POST `/api/xiaocan/wechat/report` → 面板轮询到 done 自动刷新。
+
+```
+POST /api/xiaocan/wechat/pair            生成配对码
+GET  /api/xiaocan/wechat/pair/<code>      查询状态（waiting/done/expired）
+GET  /api/xiaocan/wechat/script?code=     下载内嵌配对码的脚本
+POST /api/xiaocan/wechat/report           脚本回调（凭配对码，无需登录）
+POST /api/xiaocan/wechat/scan             Windows 部署时就地扫描
+```
+
+只读 `WeChatAppEx.exe` / `wmpf` 进程内存中的 JWT，不读取聊天内容；配对码只能把账号绑到
+生成它的那个用户名下，且用后即失效。
+
 ### 绑定小蚕账号（微信扫码）
 
 面板「小蚕 → 小蚕账号登录 / 绑定」。

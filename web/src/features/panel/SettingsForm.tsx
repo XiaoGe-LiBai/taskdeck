@@ -217,6 +217,16 @@ export const SettingsForm = (props: {
                 defaultValue={props.settings?.site_url ?? ''}
               />
             </Field>
+            <Field
+              label="天地图 Key（定位服务）"
+              hint="到 tianditu.gov.cn 免费申请「浏览器端」key 后填这里；填了之后所有用户都能搜商圈/地标并逆地理，留空则只用 IP 归属地与内置城市表"
+            >
+              <Input
+                name="tianditu_key"
+                placeholder="留空 = 只用免费降级通道"
+                defaultValue={props.settings?.tianditu_key ?? ''}
+              />
+            </Field>
           </div>
 
           <Field label="邀请奖励比例（bps）" hint="800 = 8%；下级用积分购买会员时上级按此比例获得返利">

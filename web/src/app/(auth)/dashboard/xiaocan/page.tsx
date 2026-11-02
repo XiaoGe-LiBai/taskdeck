@@ -2,6 +2,7 @@ import type { PanelAccount } from '@/types/Panel';
 import Link from 'next/link';
 import { AnimatedList } from '@/components/reactbits';
 import { Card, CountValue, PageTitle, StatCard, Table, Tag, Td } from '@/features/panel/Ui';
+import { WechatDirectPanel } from '@/features/panel/WechatDirectPanel';
 import { XiaocanBindPanel } from '@/features/panel/XiaocanBindPanel';
 import { XiaocanConsole } from '@/features/panel/XiaocanConsole';
 import { panelGet, panelMe } from '@/libs/PanelApi';
@@ -97,6 +98,7 @@ export default async function XiaoCanPage() {
           description="用微信扫码登录小蚕账号接入托管；绑定完成后在「账号管理」中维护开关与有效期"
         >
           <XiaocanBindPanel />
+          <WechatDirectPanel />
         </Card>
 
         <Card

@@ -9,6 +9,7 @@ from datetime import timedelta
 from flask import Blueprint, Response, abort, request, send_file
 
 import core
+import location
 import runner_dispatch
 import vip
 import meituan_runner
@@ -21,6 +22,7 @@ import store_watch
 import xiaocan_stats
 import xiaocan_bridge as xc
 import xiaocan_tasks
+import wechat_direct
 
 bp = Blueprint("user", __name__)
 
@@ -1322,6 +1324,110 @@ WRITE_ACTIONS = {
     "cancel_promotion_quota", "grab_brand_card", "grab_free_order_quota", "use_free_order_card",
     "grab_rebate_card_quota", "exchange_goods", "draw_page_gift", "set_all_messages_read",
 }
+
+
+# ------------------------------------------------------------ 电脑微信直连提 token
+#
+# 服务端跑在 Linux 容器时读不到用户 Windows 上的微信进程，所以走「配对码 + 一次性脚本」：
+# 面板生成 6 位码，用户在本机跑脚扫描 WeChatAppEx.exe 内存，把 token 报回来入库。
+# 若服务端本身部署在 Windows（开源版形态），可以直接调 /scan 就地扫。
+
+
+@bp.post("/xiaocan/wechat/pair")
+@core.require_login
+def wechat_direct_pair_api():
+    created = wechat_direct.create_pair(core.current_user()["id"])
+    return core.ok(created)
+
+
+@bp.get("/xiaocan/wechat/pair/<code>")
+@core.require_login
+def wechat_direct_pair_status_api(code: str):
+    return core.ok(wechat_direct.pair_status(code, core.current_user()["id"]))
+
+
+@bp.post("/xiaocan/wechat/report")
+def wechat_direct_report_api():
+    """Windows 脚本回调：凭配对码入库，不需要登录态（脚本没有浏览器 cookie）。"""
+    body = request.get_json(silent=True) or {}
+    code = str(body.get("code") or "").strip()
+    try:
+        result = wechat_direct.report(code, body)
+    except ValueError as exc:
+        return core.fail(str(exc))
+    except Exception as exc:
+        return core.fail(f"入库失败：{exc}")
+    return core.ok(result)
+
+
+@bp.get("/xiaocan/wechat/script")
+@core.require_login
+def wechat_direct_script_api():
+    """下载内嵌了面板地址与配对码的一次性脚本（纯文本）。"""
+    code = str(request.args.get("code") or "").strip()
+    status = wechat_direct.pair_status(code, core.current_user()["id"])
+    if status["state"] == "expired":
+        return core.fail("配对码无效或已过期，请重新生成")
+    base = (core.get_setting("site_url", "") or request.host_url).rstrip("/")
+    text = wechat_direct.build_windows_script(base, code)
+    return Response(
+        text,
+        mimetype="text/x-python",
+        headers={"Content-Disposition": f'attachment; filename="wechat_direct_{code}.py"'},
+    )
+
+
+@bp.post("/xiaocan/wechat/scan")
+@core.require_login
+def wechat_direct_scan_api():
+    """服务端就地扫描（仅当本项目部署在 Windows 上时可用）。"""
+    if not wechat_direct.available():
+        return core.fail("服务端不在 Windows 上，读不到微信进程内存；请改用配对码 + 本机脚本")
+    cred = wechat_direct.scan()
+    if not cred:
+        return core.fail("没扫到小蚕凭证：请先在电脑微信里打开一次小蚕小程序，再重试")
+    if not cred.get("silk_id"):
+        return core.fail("扫到 token 但缺少 silk_id：在小程序里多点一个页面后重试")
+    import xiaocan_bridge
+
+    line = f"{cred.get('nickname') or cred['silk_id'][-4:]}#{cred['user_id']}#{cred['silk_id']}#{cred['token']}"
+    try:
+        data = xiaocan_bridge.bind_from_lines(core.current_user()["id"], line)
+    except ValueError as exc:
+        return core.fail(str(exc))
+    return core.ok({"accounts": data.get("accounts"), "errors": data.get("errors", [])})
+
+
+# ------------------------------------------------------------ 位置服务
+#
+# 天地图 key 由管理员在系统设置里填，普通用户不接触：所有检索都从后端代理，
+# 前端只拿候选与 city_code。没 key 时降级为「内置城市表 + 免费逆地理 + IP 归属地」。
+
+
+@bp.get("/location/search")
+@core.require_login
+def location_search_api():
+    keyword = str(request.args.get("q") or request.args.get("keyword") or "").strip()
+    return core.ok({"keyword": keyword, "candidates": location.search(keyword)})
+
+
+@bp.get("/location/resolve")
+@core.require_login
+def location_resolve_api():
+    try:
+        lat = float(request.args.get("lat") or "")
+        lon = float(request.args.get("lon") or "")
+    except ValueError:
+        return core.fail("经纬度格式不对")
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return core.fail("经纬度超出范围")
+    return core.ok(location.resolve(lat, lon))
+
+
+@bp.get("/location/ip")
+@core.require_login
+def location_ip_api():
+    return core.ok(location.ip_location())
 
 
 @bp.get("/xiaocan/accounts/<int:account_id>/overview")

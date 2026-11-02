@@ -6,6 +6,8 @@ import { DotGrid, SwarmCursor } from '@/components/reactbits';
 import { Breadcrumb } from '@/features/panel/Breadcrumb';
 import { DashboardSidebar } from '@/features/panel/DashboardSidebar';
 import { DeniedNotice } from '@/features/panel/DeniedNotice';
+import { LocationButton } from '@/features/panel/location/LocationButton';
+import { LocationProvider } from '@/features/panel/location/LocationProvider';
 import { MobileNav } from '@/features/panel/MobileNav';
 import { PageTransition } from '@/features/panel/PageTransition';
 import { UserMenu } from '@/features/panel/UserMenu';
@@ -53,88 +55,93 @@ export default async function DashboardLayout(props: DashboardLayoutProps) {
       };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-brand-soft">
-      <DashboardSidebar
-        badges={badges as Record<string, number>}
-        role={role}
-        siteName={siteInfo.site_name}
-        logoUrl={siteInfo.logo_url}
-      />
+    <LocationProvider>
+      <div className="flex h-screen overflow-hidden bg-brand-soft">
+        <DashboardSidebar
+          badges={badges as Record<string, number>}
+          role={role}
+          siteName={siteInfo.site_name}
+          logoUrl={siteInfo.logo_url}
+        />
 
-      <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="
-          z-30 flex shrink-0 items-center justify-between gap-3 border-b
-          bg-card/90 px-4 py-3 backdrop-blur-sm
-          lg:px-6
-        "
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <MobileNav
-              role={role}
-              badges={badges as Record<string, number>}
-              siteName={siteInfo.site_name}
-              logoUrl={siteInfo.logo_url}
-            />
-            <Breadcrumb />
-            <div className="
-              flex items-center gap-2
-              lg:hidden
-            "
-            >
-              <BrandMark size={26} logoUrl={siteInfo.logo_url} />
-              <span className="
-                max-w-40 truncate text-brand-gradient text-sm font-semibold
-                whitespace-nowrap
+        <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+          <header className="
+            z-30 flex shrink-0 items-center justify-between gap-3 border-b
+            bg-card/90 px-4 py-3 backdrop-blur-sm
+            lg:px-6
+          "
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <MobileNav
+                role={role}
+                badges={badges as Record<string, number>}
+                siteName={siteInfo.site_name}
+                logoUrl={siteInfo.logo_url}
+              />
+              <Breadcrumb />
+              <div className="
+                flex items-center gap-2
+                lg:hidden
               "
               >
-                {siteInfo.site_name}
-              </span>
+                <BrandMark size={26} logoUrl={siteInfo.logo_url} />
+                <span className="
+                  max-w-40 truncate text-brand-gradient text-sm font-semibold
+                  whitespace-nowrap
+                "
+                >
+                  {siteInfo.site_name}
+                </span>
+              </div>
             </div>
-          </div>
 
-          <UserMenu
-            email={user.email}
-            nickname={user.nickname}
-            role={user.role}
-          />
-        </header>
+            <div className="flex shrink-0 items-center gap-2">
+              <LocationButton />
+              <UserMenu
+                email={user.email}
+                nickname={user.nickname}
+                role={user.role}
+              />
+            </div>
+          </header>
 
-        <main className="
-          relative min-h-0 flex-1 overflow-y-auto px-4 py-6
-          lg:px-6
-        "
-        >
-          <DotGrid className="fixed z-0" />
-          {/* 跟随光标的粒子群背景层：fixed z-0 固定在内容（relative z-10）之下，
+          <main className="
+            relative min-h-0 flex-1 overflow-y-auto px-4 py-6
+            lg:px-6
+          "
+          >
+            <DotGrid className="fixed z-0" />
+            {/* 跟随光标的粒子群背景层：fixed z-0 固定在内容（relative z-10）之下，
               叠加 pointer-events:none，既不挡点击也不会盖住卡片。
               几何参数用官方默认，只收小 size / 压低 opacity —— 品牌橙不透明时在浅色主题上偏重。 */}
-          <SwarmCursor
-            className="fixed z-0"
-            color="#fa8927"
-            accentColor="#fa3569"
-            size={7}
-            opacity={0.6}
-          />
-          {down && (
-            <div className="
-              relative mb-4 rounded-lg border border-amber-500/30
-              bg-amber-500/10 px-4 py-3 text-sm text-amber-600
-              dark:text-amber-400
-            "
-            >
-              ⚠️ 无法连接后端服务（
-              {PANEL_API_URL}
-              ）。页面展示的是缓存/空数据，
-              请确认 Flask 后端已启动（
-              <code className="font-mono">cd server &amp;&amp; ./run.sh</code>
-              ）后刷新。
-            </div>
-          )}
-          <DeniedNotice />
-          <PageTransition>{props.children}</PageTransition>
-        </main>
+            <SwarmCursor
+              className="fixed z-0"
+              color="#fa8927"
+              accentColor="#fa3569"
+              size={7}
+              opacity={0.6}
+            />
+            {down && (
+              <div className="
+                relative mb-4 rounded-lg border border-amber-500/30
+                bg-amber-500/10 px-4 py-3 text-sm text-amber-600
+                dark:text-amber-400
+              "
+              >
+                ⚠️ 无法连接后端服务（
+                {PANEL_API_URL}
+                ）。页面展示的是缓存/空数据，
+                请确认 Flask 后端已启动（
+                <code className="font-mono">cd server &amp;&amp; ./run.sh</code>
+                ）后刷新。
+              </div>
+            )}
+            <DeniedNotice />
+            <PageTransition>{props.children}</PageTransition>
+          </main>
+        </div>
       </div>
-    </div>
+    </LocationProvider>
   );
 }
 
