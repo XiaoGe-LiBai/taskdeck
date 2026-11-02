@@ -537,26 +537,28 @@ export const XiaocanAutomation = (props: {
                   aria-pressed={active}
                   className={`
                     rounded-md px-3 py-1.5 text-sm font-medium transition-colors
-                    ${active
+                    ${
+                active
                   ? 'bg-brand-gradient text-white shadow-sm'
                   : `
                     text-muted-foreground
                     hover:bg-muted
-                  `}
+                  `
+                }
                   `}
                 >
                   {group.label}
-                  {' ('}
-                  {group.tasks.length}
-                  )
+                  {' '}
                   <span className={`
-                    ml-1.5 text-[11px]
-                    ${active ? 'text-white/80' : 'text-muted-foreground'}
+                    text-[11px]
+                    ${active
+                  ? 'text-white/80'
+                  : `text-muted-foreground`}
                   `}
                   >
-                    {enabledCount}
-                    /
                     {group.tasks.length}
+                    {' 项 · 开启 '}
+                    {enabledCount}
                   </span>
                 </button>
               );
