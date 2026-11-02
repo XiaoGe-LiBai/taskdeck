@@ -32,17 +32,23 @@ const isDark = (theme: Theme) =>
  */
 export const ThemeToggle = () => {
   const [theme, setTheme] = useState<Theme>('system');
+  const [ready, setReady] = useState(false);
 
+  // 首次挂载：读本地存储并立即应用一次。
+  // 必须在这里再 apply 一遍 —— 首屏脚本已经着色，但下面那个「跟随系统」的 effect
+  // 在 theme 还是初始值 'system' 时会按系统配色把 class 覆盖掉，
+  // 表现为「刷新后深色丢了」。
   useEffect(() => {
     const stored = localStorage.getItem(STORE_KEY) as Theme | null;
-    if (stored && ORDER.includes(stored)) {
-      setTheme(stored);
-    }
+    const initial = stored && ORDER.includes(stored) ? stored : 'system';
+    document.documentElement.classList.toggle('dark', isDark(initial));
+    setTheme(initial);
+    setReady(true);
   }, []);
 
   // 跟随系统时，系统切换深/浅要实时跟
   useEffect(() => {
-    if (theme !== 'system') {
+    if (!ready || theme !== 'system') {
       return;
     }
     const media = window.matchMedia('(prefers-color-scheme: dark)');
@@ -52,7 +58,7 @@ export const ThemeToggle = () => {
     apply(media);
     media.addEventListener('change', apply);
     return () => media.removeEventListener('change', apply);
-  }, [theme]);
+  }, [ready, theme]);
 
   const cycle = () => {
     const next = ORDER[(ORDER.indexOf(theme) + 1) % ORDER.length] ?? 'system';
