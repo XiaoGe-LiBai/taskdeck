@@ -203,6 +203,32 @@ export async function grabPromotionAction(params: {
   return { ok: true, msg: `已排队，计划 ${resp.data.at}` };
 }
 
+export async function createStockListenerAction(params: {
+  accountId: number;
+  promotionId: string;
+  lat: string;
+  lon: string;
+  cityCode: string;
+  storePlatform: number;
+  intervalSec: number;
+  timeoutSec: number;
+  advance: boolean;
+  redpackId: number;
+}): Promise<{ ok: boolean; msg: string }> {
+  const response = await panelSend('POST', `/xiaocan/accounts/${params.accountId}/stock-listener`, {
+    promotion_id: params.promotionId,
+    lat: params.lat,
+    lon: params.lon,
+    city_code: params.cityCode,
+    store_platform: params.storePlatform,
+    interval_sec: params.intervalSec,
+    timeout_sec: params.timeoutSec,
+    advance: params.advance,
+    redpack_id: params.redpackId,
+  });
+  return { ok: response.ok, msg: response.ok ? '名额监听已启动' : (response.msg || '创建失败') };
+}
+
 export type GrabJob = {
   id: string;
   account_id: number;
@@ -215,6 +241,8 @@ export type GrabJob = {
   advance?: number;
   redpack_id?: number;
   order_id?: number;
+  interval_sec?: number;
+  until_ts?: number;
 };
 
 export async function manageGrabJobAction(id: string, operation: 'cancel' | 'delete'): Promise<{ ok: boolean; msg: string }> {

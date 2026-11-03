@@ -305,6 +305,31 @@ def _clean_promo_id(promotion_id) -> tuple[str, int]:
         raise ValueError(f"promotion_id 不合法：{promotion_id!r}") from None
 
 
+def promotion_stock(account: dict, promotion_id, *, store_platform: int = 1, city_code=None) -> int:
+    """查询指定平台的活动库存；未知库存不能当作有库存。"""
+    _, pid = _clean_promo_id(promotion_id)
+    if pid <= 0 or pid >= SHANGJIN_ID_FLOOR:
+        raise ValueError("当前活动类型暂不支持名额监听")
+    city = int(city_code) if city_code else None
+    body = {"promotion_id": pid}
+    if pid < FUSION_ID_CEILING:
+        body["source"] = 2
+        response = _call(account, "SilkwormFusion", "FusionService.GetFusionPromotionDetail", body, city_code=city)
+    else:
+        response = _call(account, "Silkworm", "SilkwormService.GetStorePromotionDetail", body, city_code=city)
+    detail = response.get("promotion_detail") or {}
+    platform_key = {1: "meituan_left_number", 2: "eleme_left_number"}.get(int(store_platform))
+    value = detail.get(platform_key) if platform_key else None
+    if value is None:
+        actual_platform = detail.get("store_platform") or (detail.get("store") or {}).get("store_platform")
+        if actual_platform and int(actual_platform) != int(store_platform):
+            return 0
+        value = detail.get("left_number")
+    if value is None:
+        raise ValueError("平台未返回活动库存")
+    return max(0, int(value))
+
+
 def grab_promotion_quota(
     account: dict,
     promotion_id,

@@ -58,6 +58,8 @@ def create_app() -> Flask:
 
     import grab_engine
     grab_engine.recover()
+    import stock_listener
+    stock_listener.recover()
 
     # 店铺监控常驻线程：按各自间隔轮询，发现新店/名额就发通知（不自动抢单）
     import store_watch

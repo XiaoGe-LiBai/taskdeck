@@ -1618,21 +1618,45 @@ def xiaocan_job_logs_clear_api():
 def xiaocan_scheduler_api():
     """当前用户可见的抢单任务和等级刷新状态。"""
     import grab_engine
-    jobs = grab_engine.list_jobs(account_ids=_my_account_ids())
+    import stock_listener
+    scope = _my_account_ids()
+    jobs = grab_engine.list_jobs(account_ids=scope) + stock_listener.list_jobs(account_ids=scope)
+    jobs.sort(key=lambda job: job.get("created_at") or "", reverse=True)
     return core.ok({
         "grab_jobs": jobs,
         "level_refresh": core.get_setting("level_refresh_enabled", "true") == "true",
     })
 
 
+@bp.post("/xiaocan/accounts/<int:account_id>/stock-listener")
+@core.require_login
+def create_stock_listener_api(account_id: int):
+    import stock_listener
+    if not _own_account(account_id):
+        return core.fail("账号不存在")
+    body = request.get_json(silent=True) or {}
+    try:
+        job = stock_listener.create(
+            account_id, str(body.get("promotion_id") or ""), lat=body.get("lat"), lon=body.get("lon"),
+            city_code=body.get("city_code"), store_platform=int(body.get("store_platform") or 1),
+            interval_sec=int(body.get("interval_sec") or 5), timeout_sec=int(body.get("timeout_sec") or 3600),
+            advance=bool(body.get("advance")), redpack_id=int(body.get("redpack_id") or 0),
+        )
+    except (ValueError, TypeError) as exc:
+        return core.fail(str(exc))
+    return core.ok(job)
+
+
 @bp.post("/xiaocan/grab-jobs/<job_id>/cancel")
 @core.require_login
 def cancel_grab_api(job_id: str):
     import grab_engine
-    job = grab_engine.get_job(job_id)
+    import stock_listener
+    engine = stock_listener if job_id.startswith("stock-") else grab_engine
+    job = engine.get_job(job_id)
     if not job or not _own_account(job["account_id"]):
         return core.fail("任务不存在")
-    if not grab_engine.cancel(job_id):
+    if not engine.cancel(job_id):
         return core.fail("任务已经开始或结束，无法取消")
     return core.ok({"cancelled": True})
 
@@ -1641,10 +1665,12 @@ def cancel_grab_api(job_id: str):
 @core.require_login
 def delete_grab_api(job_id: str):
     import grab_engine
-    job = grab_engine.get_job(job_id)
+    import stock_listener
+    engine = stock_listener if job_id.startswith("stock-") else grab_engine
+    job = engine.get_job(job_id)
     if not job or not _own_account(job["account_id"]):
         return core.fail("任务不存在")
-    if not grab_engine.delete(job_id):
+    if not engine.delete(job_id):
         return core.fail("运行中或等待中的任务不能删除")
     return core.ok({"deleted": True})
 

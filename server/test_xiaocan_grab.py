@@ -41,6 +41,16 @@ class GrabApiTests(unittest.TestCase):
         self.assertIn("任务不存在", response[0].get_json()["msg"])
         cancel.assert_not_called()
 
+    def test_listener_requires_owned_account(self) -> None:
+        from flask import Flask
+        app = Flask(__name__)
+        with app.test_request_context(json={'promotion_id': '123'}):
+            with mock.patch.object(api_user, '_own_account', return_value=None), \
+                 mock.patch('stock_listener.create') as create:
+                response = api_user.create_stock_listener_api.__wrapped__(7)
+        self.assertIn('账号不存在', response[0].get_json()['msg'])
+        create.assert_not_called()
+
     def test_future_appointment_is_passed_to_scheduler(self) -> None:
         from flask import Flask
         app = Flask(__name__)

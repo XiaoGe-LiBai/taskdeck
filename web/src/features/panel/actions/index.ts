@@ -110,6 +110,7 @@ export {
   claimMeituanAction,
   clearJobLogsAction,
   createOrderAction,
+  createStockListenerAction,
   createWatchAction,
   deleteMeituanAccountAction,
   deleteOrderAction,

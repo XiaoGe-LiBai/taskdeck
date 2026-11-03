@@ -3,7 +3,7 @@
 import type { GrabJob, StoreItem } from './actions';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
-import { fetchSchedulerAction, fetchStoresAction, grabPromotionAction, manageGrabJobAction } from './actions';
+import { createStockListenerAction, fetchSchedulerAction, fetchStoresAction, grabPromotionAction, manageGrabJobAction } from './actions';
 import { useGeoLocation } from './location/LocationContext';
 import { Card, Empty, Tag } from './Ui';
 
@@ -188,6 +188,9 @@ export const XiaocanSniping = (props: {
   const [picked, setPicked] = useState<Record<string, string>>({});
   const [pending, setPending] = useState('');
   const [appointment, setAppointment] = useState<StoreItem | null>(null);
+  const [appointmentMode, setAppointmentMode] = useState<'appointment' | 'stock'>('appointment');
+  const [intervalSec, setIntervalSec] = useState(5);
+  const [timeoutMinutes, setTimeoutMinutes] = useState(60);
   const [advance, setAdvance] = useState(false);
   const [earlyMs, setEarlyMs] = useState(0);
   const [redpackId, setRedpackId] = useState('');
@@ -292,23 +295,36 @@ export const XiaocanSniping = (props: {
     }
     const id = promoId(appointment);
     const startsAt = Number(appointment.start_timestamp ?? 0);
-    if (!id || !Number.isFinite(startsAt) || startsAt * 1000 <= Date.now()) {
+    if (!id || (appointmentMode === 'appointment' && (!Number.isFinite(startsAt) || startsAt * 1000 <= Date.now()))) {
       setMessage({ ok: false, text: '活动开抢时间无效或已到，请刷新店铺后重试' });
       setAppointment(null);
       return;
     }
     setPending(`grab-${id}`);
-    const result = await grabPromotionAction({
-      accountId,
-      promotionId: id,
-      at: new Date(startsAt * 1000).toISOString(),
-      advance,
-      earlyMs,
-      redpackId: redpackId ? Number(redpackId) : 0,
-      lat: location?.lat,
-      lon: location?.lon,
-      cityCode: location?.cityCode,
-    });
+    const result = appointmentMode === 'stock'
+      ? await createStockListenerAction({
+          accountId,
+          promotionId: id,
+          lat: location!.lat,
+          lon: location!.lon,
+          cityCode: location!.cityCode,
+          storePlatform: Number(appointment.store_platform || shopOf(appointment).store_platform || 1),
+          intervalSec,
+          timeoutSec: timeoutMinutes * 60,
+          advance,
+          redpackId: redpackId ? Number(redpackId) : 0,
+        })
+      : await grabPromotionAction({
+          accountId,
+          promotionId: id,
+          at: new Date(startsAt * 1000).toISOString(),
+          advance,
+          earlyMs,
+          redpackId: redpackId ? Number(redpackId) : 0,
+          lat: location?.lat,
+          lon: location?.lon,
+          cityCode: location?.cityCode,
+        });
     setPending('');
     setMessage({ ok: result.ok, text: result.msg });
     if (result.ok) {
@@ -370,13 +386,21 @@ export const XiaocanSniping = (props: {
             {state === 'active' && soldOut && (
               <button
                 type="button"
-                disabled
+                disabled={busy}
+                onClick={() => {
+                  setAppointmentMode('stock');
+                  setAdvance(false);
+                  setRedpackId('');
+                  setIntervalSec(5);
+                  setTimeoutMinutes(60);
+                  setAppointment(active);
+                }}
                 className="
-                  rounded-md border px-2.5 py-1 text-xs text-muted-foreground
-                  opacity-60
+                  rounded-md border border-primary/40 px-2.5 py-1 text-xs
+                  text-primary hover:bg-primary/10 disabled:opacity-50
                 "
               >
-                已领完
+                名额监听
               </button>
             )}
             {state === 'before' && (
@@ -384,6 +408,7 @@ export const XiaocanSniping = (props: {
                 type="button"
                 disabled={busy}
                 onClick={() => {
+                  setAppointmentMode('appointment');
                   setAdvance(false);
                   setEarlyMs(0);
                   setRedpackId('');
@@ -663,26 +688,44 @@ export const XiaocanSniping = (props: {
       {appointment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div role="dialog" aria-modal="true" aria-labelledby="appointment-title" className="w-full max-w-md rounded-lg border bg-background p-5 shadow-xl">
-            <h3 id="appointment-title" className="text-base font-semibold">预约抢单</h3>
+            <h3 id="appointment-title" className="text-base font-semibold">{appointmentMode === 'stock' ? '名额监听' : '预约抢单'}</h3>
             <p className="mt-3 text-sm">{storeName(appointment)}</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {`开抢时间：${new Date(Number(appointment.start_timestamp) * 1000).toLocaleString('zh-CN', { hour12: false })}`}
-            </p>
+            {appointmentMode === 'appointment' && (
+              <p className="mt-1 text-sm text-muted-foreground">
+                {`开抢时间：${new Date(Number(appointment.start_timestamp) * 1000).toLocaleString('zh-CN', { hour12: false })}`}
+              </p>
+            )}
             <label className="mt-4 flex items-center gap-2 text-sm">
               <input type="checkbox" checked={advance} onChange={event => setAdvance(event.target.checked)} />
               使用超前券
             </label>
-            <label className="mt-4 flex flex-col gap-1 text-sm">
-              提前量（毫秒）
-              <Input type="number" min={0} max={60000} value={earlyMs} onChange={event => setEarlyMs(Number(event.target.value))} />
-            </label>
+            {appointmentMode === 'appointment'
+              ? (
+                  <label className="mt-4 flex flex-col gap-1 text-sm">
+                    提前量（毫秒）
+                    <Input type="number" min={0} max={60000} value={earlyMs} onChange={event => setEarlyMs(Number(event.target.value))} />
+                  </label>
+                )
+              : (
+                  <>
+                    <p className="mt-3 text-xs text-muted-foreground">发现名额后会自动尝试抢单。</p>
+                    <label className="mt-3 flex flex-col gap-1 text-sm">
+                      检查间隔（秒）
+                      <Input type="number" min={3} max={60} value={intervalSec} onChange={event => setIntervalSec(Number(event.target.value))} />
+                    </label>
+                    <label className="mt-3 flex flex-col gap-1 text-sm">
+                      最长监听时间（分钟）
+                      <Input type="number" min={1} max={1440} value={timeoutMinutes} onChange={event => setTimeoutMinutes(Number(event.target.value))} />
+                    </label>
+                  </>
+                )}
             <label className="mt-3 flex flex-col gap-1 text-sm">
               指定红包 ID（不填则不指定）
               <Input type="number" min={1} value={redpackId} onChange={event => setRedpackId(event.target.value)} />
             </label>
             <div className="mt-5 flex justify-end gap-2">
               <button type="button" className="rounded-md border px-3 py-2 text-sm" onClick={() => setAppointment(null)}>取消</button>
-              <button type="button" className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50" disabled={Boolean(pending)} onClick={() => void scheduleAppointment()}>确认预约</button>
+              <button type="button" className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50" disabled={Boolean(pending)} onClick={() => void scheduleAppointment()}>{appointmentMode === 'stock' ? '启动监听' : '确认预约'}</button>
             </div>
           </div>
         </div>
@@ -707,14 +750,16 @@ export const XiaocanSniping = (props: {
                         {job.title || job.promotion_id || job.id}
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
-                        {`计划时间 ${job.at || '立即'} · 提前 ${job.early_ms || 0} 毫秒${job.advance ? ' · 超前券' : ''}${job.redpack_id ? ` · 红包 ${job.redpack_id}` : ''}`}
+                        {job.id.startsWith('stock-')
+                          ? `监听至 ${job.until_ts ? new Date(job.until_ts * 1000).toLocaleString('zh-CN', { hour12: false }) : '未知'} · 间隔 ${job.interval_sec} 秒`
+                          : `计划时间 ${job.at || '立即'} · 提前 ${job.early_ms || 0} 毫秒${job.advance ? ' · 超前券' : ''}${job.redpack_id ? ` · 红包 ${job.redpack_id}` : ''}`}
                       </div>
                       {job.message && <div className="mt-1 text-xs text-muted-foreground">{job.message}</div>}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Tag tone="info">{({ scheduled: '等待中', running: '执行中', success: '成功', failed: '失败', cancelled: '已停止', missed: '已错过', unknown: '结果待核实' } as Record<string, string>)[job.status || ''] || job.status || '等待中'}</Tag>
-                      {job.status === 'scheduled' && <button type="button" disabled={pending === `job-${job.id}`} onClick={() => void manageJob(job, 'cancel')} className="rounded-md border px-2 py-1 text-xs">停止</button>}
-                      {job.status !== 'scheduled' && job.status !== 'running' && <button type="button" disabled={pending === `job-${job.id}`} onClick={() => void manageJob(job, 'delete')} className="rounded-md border px-2 py-1 text-xs">删除</button>}
+                      <Tag tone="info">{({ scheduled: '等待中', monitoring: '监听中', expired: '已到期', running: '执行中', success: '成功', failed: '失败', cancelled: '已停止', missed: '已错过', unknown: '结果待核实' } as Record<string, string>)[job.status || ''] || job.status || '等待中'}</Tag>
+                      {(job.status === 'scheduled' || job.status === 'monitoring') && <button type="button" disabled={pending === `job-${job.id}`} onClick={() => void manageJob(job, 'cancel')} className="rounded-md border px-2 py-1 text-xs">停止</button>}
+                      {job.status !== 'scheduled' && job.status !== 'monitoring' && job.status !== 'running' && <button type="button" disabled={pending === `job-${job.id}`} onClick={() => void manageJob(job, 'delete')} className="rounded-md border px-2 py-1 text-xs">删除</button>}
                     </div>
                   </div>
                 ))
