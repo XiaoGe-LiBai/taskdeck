@@ -146,6 +146,13 @@ class ParamTests(unittest.TestCase):
         self.assertIn("09:30", half)
         self.assertGreater(len(half), len(hourly))
 
+    def test_dual_slots_cover_full_day_when_unrestricted(self) -> None:
+        task = auto.BY_KEY["dual_rebate"]
+        slots = auto._slots_of(task, {"interval_minutes": 60, "active_hours_only": False})
+        self.assertEqual(len(slots), 24)
+        self.assertEqual(slots[0], "00:00")
+        self.assertEqual(slots[-1], "23:00")
+
     def test_flash_sale_has_three_rounds(self) -> None:
         task = auto.BY_KEY["flash_sale"]
         self.assertEqual(auto._slots_of(task, {}), ["09:00", "14:00", "18:00"])

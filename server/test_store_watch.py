@@ -109,6 +109,19 @@ class ProbeTests(Base):
                 watch.probe({"id": 1}, "dual", {"lat": 1, "lon": 2})
         self.assertIn("熔断", str(caught.exception))
 
+    def test_collect_respects_requested_limit(self) -> None:
+        def feed(_account, *, offset, **_kwargs):
+            return {"items": [item(f"store-{index}") for index in range(offset, offset + 20)]}
+        with mock.patch("xiaocan_actions.feed_stores", side_effect=feed) as call:
+            found = watch._collect({"id": 1}, {"lat": 1, "lon": 2, "limit": 55})
+        self.assertEqual(len(found), 55)
+        self.assertEqual(call.call_count, 3)
+
+    def test_collect_fails_if_later_page_errors(self) -> None:
+        with mock.patch("xiaocan_actions.feed_stores", side_effect=[{"items": [item(str(i)) for i in range(20)]}, RuntimeError("WAF")]):
+            with self.assertRaisesRegex(RuntimeError, "WAF"):
+                watch._collect({"id": 1}, {"lat": 1, "lon": 2, "limit": 40})
+
     def test_collect_stops_on_short_page(self) -> None:
         with mock.patch("xiaocan_actions.feed_stores", return_value={"items": rows[:2]}) as feed:
             watch.probe({"id": 1}, "dual", {"lat": 1, "lon": 2})

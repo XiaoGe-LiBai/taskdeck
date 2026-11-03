@@ -213,24 +213,19 @@ def _collect(account: dict, params: dict) -> list[dict]:
         "city_code": params.get("city_code"),
     }
     keyword = str(params.get("keyword") or "").strip()
-    last_error: Exception | None = None
-    for page in range(SCAN_PAGES):
-        offset = page * 20
-        try:
-            if keyword:
-                res = actions.search_stores(account, keyword, offset=offset, limit=20, **base)
-            else:
-                res = actions.feed_stores(account, offset=offset, limit=20, **base)
-        except Exception as exc:
-            last_error = exc
-            break
+    try:
+        max_items = max(1, min(int(params.get("limit") or SCAN_PAGES * 20), 800))
+    except (TypeError, ValueError):
+        raise ValueError("扫描数量无效") from None
+    for offset in range(0, max_items, 20):
+        if keyword:
+            res = actions.search_stores(account, keyword, offset=offset, limit=20, **base)
+        else:
+            res = actions.feed_stores(account, offset=offset, limit=20, **base)
         page_items = res.get("items") or []
-        items.extend(page_items)
+        items.extend(page_items[:max_items - len(items)])
         if len(page_items) < 20:
             break
-    # 一条都没拿到还把错误吞掉，监控会永远显示「0 条」而不报原因
-    if not items and last_error is not None:
-        raise last_error
     return items
 
 

@@ -568,8 +568,9 @@ def _slots_of(task: dict, params: dict) -> list[str]:
     """任务当天的执行时刻。同店双返利按参数的巡检间隔铺满 09:00-23:00。"""
     if task["key"] == "dual_rebate":
         step = max(30, int(params.get("interval_minutes") or 60))
-        slots, cursor = [], 9 * 60
-        while cursor <= 23 * 60:
+        start, end = (9 * 60, 23 * 60 + 1) if params.get("active_hours_only", True) else (0, 24 * 60)
+        slots, cursor = [], start
+        while cursor < end:
             slots.append(f"{cursor // 60:02d}:{cursor % 60:02d}")
             cursor += step
         return slots
