@@ -120,6 +120,7 @@ export {
   fetchWatchHitsAction,
   fetchXiaocanOverviewAction,
   grabPromotionAction,
+  manageGrabJobAction,
   orderAction,
   pollMeituanAuthAction,
   readXiaocanCredentialAction,

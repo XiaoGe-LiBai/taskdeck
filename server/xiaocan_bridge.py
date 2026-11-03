@@ -779,6 +779,7 @@ def xiaocan_rpc(
     token: str = "",
     app_id: int = XC_APP_ID,
     city_code: int | None = None,
+    retry_safe: bool = True,
 ) -> dict:
     """调用小蚕网关 RPC，返回完整响应体（业务错误抛 RuntimeError）。
 
@@ -801,7 +802,7 @@ def xiaocan_rpc(
 
     last_error = ""
     waf_hit = False
-    for url in (XC_RPC_URL, XC_RPC_BACKUP_URL):
+    for url in ((XC_RPC_URL, XC_RPC_BACKUP_URL) if retry_safe else (XC_RPC_URL,)):
         host = urllib.parse.urlparse(url).netloc
         x_nami, x_garen, x_ashe = _xc_sign(server, method, str(silk_id))
         headers = {

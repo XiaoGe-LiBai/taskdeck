@@ -56,6 +56,9 @@ def create_app() -> Flask:
     import xiaocan_bridge
     xiaocan_bridge.start_level_refresh_daemon()
 
+    import grab_engine
+    grab_engine.recover()
+
     # 店铺监控常驻线程：按各自间隔轮询，发现新店/名额就发通知（不自动抢单）
     import store_watch
     store_watch.start_daemon()

@@ -1,161 +1,194 @@
-"""抢单执行器：到点触发 + 可取消 + 结果留痕。
+"""Persistent scheduled grab jobs.
 
-定位：
-- 只做「什么时候打、打完记什么」，真正的小蚕调用在 xiaocan_actions.grab_promotion_quota；
-- 任务存在进程内存里（重启即失效），与开源版一致的取舍：抢单是秒级窗口，写库反而增加延迟风险；
-- 到点前的等待分两段：>0.5s 时 50ms 轮询，最后 0.5s 缩到 5ms，兼顾精度与 CPU。
+A job is claimed atomically before the upstream request. Interrupted requests are
+never retried automatically because the upstream order may already exist.
 """
 from __future__ import annotations
 
+import math
 import threading
 import time
 import uuid
-from typing import Any
+from datetime import datetime
 
 import core
 import xiaocan_actions as actions
 import xiaocan_stats as stats
 
-_JOBS: dict[str, dict[str, Any]] = {}
-_TIMERS: dict[str, threading.Thread] = {}
 _LOCK = threading.Lock()
-
+_TIMERS: dict[str, tuple[threading.Thread, threading.Event]] = {}
 MAX_JOBS = 200
+
+
+def ensure_tables() -> None:
+    core.get_db().execute("""CREATE TABLE IF NOT EXISTS xc_grab_jobs (
+        id TEXT PRIMARY KEY, account_id INTEGER NOT NULL, promotion_id TEXT NOT NULL,
+        at_ts REAL NOT NULL, at TEXT NOT NULL, advance INTEGER NOT NULL DEFAULT 0,
+        lat TEXT, lon TEXT, city_code TEXT, store_platform INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL, order_id INTEGER NOT NULL DEFAULT 0, message TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT,
+        early_ms INTEGER NOT NULL DEFAULT 0, redpack_id INTEGER NOT NULL DEFAULT 0
+    )""")
+    core.get_db().execute("CREATE INDEX IF NOT EXISTS xc_grab_jobs_account ON xc_grab_jobs(account_id, created_at DESC)")
 
 
 def _now() -> float:
     return time.time()
 
 
-def _wait_until(target_ts: float, cancelled: threading.Event) -> bool:
-    """等到目标时刻；期间被取消则返回 False。"""
-    while True:
-        if cancelled.is_set():
-            return False
-        remain = target_ts - _now()
-        if remain <= 0:
-            return True
-        time.sleep(0.05 if remain > 0.5 else 0.005)
-
-
-def _fire(job_id: str, cancelled: threading.Event) -> None:
-    job = _JOBS.get(job_id)
-    if not job:
-        return
-    if not _wait_until(job["at_ts"], cancelled):
-        job["status"] = "cancelled"
-        return
-
-    job["status"] = "running"
-    job["started_at"] = core.iso()
-    try:
-        account = core.query_one("SELECT * FROM accounts WHERE id=?", (job["account_id"],))
-        if not account:
-            raise RuntimeError("账号不存在（可能已被删除）")
-        result = actions.grab_promotion_quota(
-            dict(account),
-            job["promotion_id"],
-            advance=job["advance"],
-            lat=job["lat"],
-            lon=job["lon"],
-            city_code=job["city_code"],
-            store_platform=job["store_platform"],
-        )
-        job["order_id"] = int(result.get("order_id") or 0)
-        job["status"] = "success" if job["order_id"] > 0 else "failed"
-        job["message"] = "" if job["order_id"] > 0 else (result.get("msg") or "未返回官方订单号")
-        if job["order_id"] > 0:
-            stats.record_order(job["account_id"], order_sn=f"grab-{job['order_id']}",
-                               promotion_order_id=job["order_id"], status="pending")
-    except Exception as exc:  # 失败原因要留给界面看，不能只写日志
-        job["status"] = "failed"
-        job["message"] = str(exc)
-    finally:
-        job["finished_at"] = core.iso()
-        stats.record_job(job["account_id"], "grab", job["status"], job.get("message") or "")
-        with _LOCK:
-            _TIMERS.pop(job_id, None)
-
-
-def _prune() -> None:
-    """只保留最近 MAX_JOBS 条，避免长期运行后内存无限增长。"""
-    if len(_JOBS) <= MAX_JOBS:
-        return
-    finished = sorted(
-        (jid for jid, job in _JOBS.items() if job["status"] in ("success", "failed", "cancelled")),
-        key=lambda jid: _JOBS[jid].get("finished_at") or "",
-    )
-    for jid in finished[: len(_JOBS) - MAX_JOBS]:
-        _JOBS.pop(jid, None)
-
-
-def schedule(
-    account_id: int,
-    promotion_id: str,
-    *,
-    at_ts: float | None = None,
-    advance: bool = False,
-    lat: str | float | None = None,
-    lon: str | float | None = None,
-    city_code: str | int | None = None,
-    store_platform: int = 1,
-) -> dict:
-    """安排一次抢单；at_ts 为空或已过去则立即开始。"""
-    job_id = uuid.uuid4().hex[:12]
-    target = float(at_ts) if at_ts else _now()
-    job = {
-        "id": job_id,
-        "account_id": int(account_id),
-        "promotion_id": str(promotion_id),
-        "at_ts": target,
-        "at": core.iso(core.now_dt()) if target <= _now() else _iso_from_ts(target),
-        "advance": bool(advance),
-        "lat": lat,
-        "lon": lon,
-        "city_code": city_code,
-        "store_platform": int(store_platform or 1),
-        "status": "scheduled",
-        "order_id": 0,
-        "message": "",
-        "created_at": core.iso(),
-    }
-    cancelled = threading.Event()
-    with _LOCK:
-        _JOBS[job_id] = job
-        job["_cancelled"] = cancelled
-        thread = threading.Thread(target=_fire, args=(job_id, cancelled), name=f"grab-{job_id}", daemon=True)
-        _TIMERS[job_id] = thread
-    thread.start()
-    _prune()
-    return public(job)
-
-
 def _iso_from_ts(ts: float) -> str:
-    from datetime import datetime
     return core.iso(datetime.fromtimestamp(ts, core.CN_TZ))
 
 
+def _row(job_id: str) -> dict | None:
+    row = core.query_one("SELECT * FROM xc_grab_jobs WHERE id=?", (job_id,))
+    return dict(row) if row else None
+
+
+def _spawn(job_id: str) -> None:
+    with _LOCK:
+        if job_id in _TIMERS:
+            return
+        event = threading.Event()
+        thread = threading.Thread(target=_fire, args=(job_id, event), name=f"grab-{job_id}", daemon=True)
+        _TIMERS[job_id] = (thread, event)
+        thread.start()
+
+
+def _fire(job_id: str, cancelled: threading.Event) -> None:
+    try:
+        job = _row(job_id)
+        if not job:
+            return
+        target = job["at_ts"] - job["early_ms"] / 1000
+        while not cancelled.is_set():
+            remaining = target - _now()
+            if remaining <= 0:
+                break
+            cancelled.wait(min(remaining, 0.05 if remaining > 0.5 else 0.005))
+        if cancelled.is_set():
+            return
+        cur = core.get_db().execute(
+            "UPDATE xc_grab_jobs SET status='running', started_at=? WHERE id=? AND status='scheduled'",
+            (core.iso(), job_id),
+        )
+        if cur.rowcount != 1:
+            return
+        try:
+            account = core.query_one("SELECT * FROM accounts WHERE id=?", (job["account_id"],))
+            if not account:
+                raise ValueError("账号不存在")
+            result = actions.grab_promotion_quota(
+                dict(account), job["promotion_id"], advance=bool(job["advance"]),
+                lat=job["lat"], lon=job["lon"], city_code=job["city_code"],
+                store_platform=job["store_platform"], redpack_id=job["redpack_id"],
+            )
+            order_id = int(result.get("order_id") or 0)
+            status = "success" if order_id else "failed"
+            message = "" if order_id else (result.get("msg") or "未返回官方订单号")
+        except Exception as exc:
+            order_id = 0
+            status = "failed" if isinstance(exc, ValueError) else "unknown"
+            message = str(exc) if status == "failed" else f"请求结果未确认，请先检查平台订单：{exc}"
+        core.get_db().execute(
+            "UPDATE xc_grab_jobs SET status=?, order_id=?, message=?, finished_at=? WHERE id=? AND status='running'",
+            (status, order_id, message, core.iso(), job_id),
+        )
+        if order_id:
+            stats.record_order(job["account_id"], order_sn=f"grab-{order_id}",
+                               promotion_order_id=order_id, status="pending")
+        stats.record_job(job["account_id"], "grab", status, message)
+    finally:
+        with _LOCK:
+            _TIMERS.pop(job_id, None)
+        core.close_db()
+
+
+def schedule(account_id: int, promotion_id: str, *, at_ts: float | None = None,
+             advance: bool = False, lat=None, lon=None, city_code=None,
+             store_platform: int = 1, early_ms: int = 0, redpack_id: int = 0) -> dict:
+    ensure_tables()
+    target = float(at_ts) if at_ts is not None else _now()
+    if not math.isfinite(target) or not 0 <= int(early_ms) <= 60000 or int(redpack_id) < 0:
+        raise ValueError("预约参数无效")
+    if at_ts is not None and target - int(early_ms) / 1000 <= _now():
+        raise ValueError("预约时间已过，请刷新后重试")
+    actions._geo(lat, lon, city_code)
+    job_id = uuid.uuid4().hex[:12]
+    now = core.iso()
+    conn = core.get_db()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        active = conn.execute("SELECT COUNT(*) FROM xc_grab_jobs WHERE status IN ('scheduled', 'running')").fetchone()[0]
+        account_active = conn.execute("SELECT COUNT(*) FROM xc_grab_jobs WHERE account_id=? AND status IN ('scheduled', 'running')", (account_id,)).fetchone()[0]
+        if active >= MAX_JOBS or account_active >= 20:
+            raise ValueError("预约任务过多，请先停止或等待已有任务")
+        conn.execute("""INSERT INTO xc_grab_jobs
+            (id, account_id, promotion_id, at_ts, at, advance, lat, lon, city_code,
+             store_platform, status, created_at, early_ms, redpack_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?)""",
+            (job_id, int(account_id), str(promotion_id), target, _iso_from_ts(target),
+             int(advance), lat, lon, city_code, int(store_platform), now, int(early_ms), int(redpack_id)))
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    result = _row(job_id)
+    _spawn(job_id)
+    return result or {}
+
+
+def recover() -> None:
+    ensure_tables()
+    now = _now()
+    conn = core.get_db()
+    conn.execute("UPDATE xc_grab_jobs SET status='unknown', message=?, finished_at=? WHERE status='running'",
+                 ("服务中断，请先检查平台订单", core.iso()))
+    conn.execute("UPDATE xc_grab_jobs SET status='missed', message=?, finished_at=? WHERE status='scheduled' AND at_ts - early_ms / 1000.0 <= ?",
+                 ("服务停止期间错过预约时间", core.iso(), now))
+    for row in core.query("SELECT id FROM xc_grab_jobs WHERE status='scheduled'"):
+        _spawn(row["id"])
+
+
+def get_job(job_id: str) -> dict | None:
+    ensure_tables()
+    return _row(job_id)
+
+
 def cancel(job_id: str) -> bool:
-    job = _JOBS.get(job_id)
-    if not job or job["status"] not in ("scheduled", "running"):
+    ensure_tables()
+    cur = core.get_db().execute("UPDATE xc_grab_jobs SET status='cancelled', finished_at=? WHERE id=? AND status='scheduled'", (core.iso(), job_id))
+    if cur.rowcount != 1:
         return False
-    job["_cancelled"].set()  # type: ignore[union-attr]
-    job["status"] = "cancelled"
+    with _LOCK:
+        timer = _TIMERS.get(job_id)
+        if timer:
+            timer[1].set()
     return True
 
 
-def public(job: dict) -> dict:
-    return {k: v for k, v in job.items() if not k.startswith("_")}
+def delete(job_id: str) -> bool:
+    ensure_tables()
+    return core.get_db().execute("DELETE FROM xc_grab_jobs WHERE id=? AND status NOT IN ('scheduled', 'running')", (job_id,)).rowcount == 1
 
 
-def list_jobs(limit: int = 50) -> list[dict]:
-    jobs = sorted(_JOBS.values(), key=lambda j: j.get("created_at") or "", reverse=True)
-    return [public(j) for j in jobs[:limit]]
+def list_jobs(limit: int = 50, account_ids: list[int] | None = None) -> list[dict]:
+    ensure_tables()
+    limit = max(1, min(int(limit), MAX_JOBS))
+    if account_ids is not None:
+        if not account_ids:
+            return []
+        placeholders = ','.join('?' for _ in account_ids)
+        rows = core.query(f"SELECT * FROM xc_grab_jobs WHERE account_id IN ({placeholders}) ORDER BY created_at DESC LIMIT ?", (*account_ids, limit))
+    else:
+        rows = core.query("SELECT * FROM xc_grab_jobs ORDER BY created_at DESC LIMIT ?", (limit,))
+    return [dict(row) for row in rows]
 
 
 def reset_for_tests() -> None:
     with _LOCK:
-        for job in _JOBS.values():
-            job["_cancelled"].set()  # type: ignore[union-attr]
-        _JOBS.clear()
-        _TIMERS.clear()
+        timers = list(_TIMERS.values())
+        for _, event in timers:
+            event.set()
+    for thread, _ in timers:
+        thread.join(timeout=2)

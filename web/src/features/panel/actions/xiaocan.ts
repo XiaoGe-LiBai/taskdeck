@@ -176,6 +176,8 @@ export async function grabPromotionAction(params: {
   lon?: string;
   cityCode?: string;
   at?: string;
+  earlyMs?: number;
+  redpackId?: number;
 }): Promise<{ ok: boolean; msg: string }> {
   const payload: Record<string, unknown> = {
     promotion_id: params.promotionId,
@@ -183,6 +185,8 @@ export async function grabPromotionAction(params: {
     lat: params.lat || undefined,
     lon: params.lon || undefined,
     city_code: params.cityCode || undefined,
+    early_ms: params.earlyMs ?? 0,
+    redpack_id: params.redpackId ?? 0,
   };
   if (params.at) {
     payload.at = params.at;
@@ -206,7 +210,20 @@ export type GrabJob = {
   at?: string;
   promotion_id?: string;
   title?: string;
+  message?: string;
+  early_ms?: number;
+  advance?: number;
+  redpack_id?: number;
+  order_id?: number;
 };
+
+export async function manageGrabJobAction(id: string, operation: 'cancel' | 'delete'): Promise<{ ok: boolean; msg: string }> {
+  const path = `/xiaocan/grab-jobs/${encodeURIComponent(id)}`;
+  const response = operation === 'cancel'
+    ? await panelSend('POST', `${path}/cancel`, {})
+    : await panelSend('DELETE', path);
+  return { ok: response.ok, msg: response.ok ? (operation === 'cancel' ? '任务已停止' : '任务已删除') : (response.msg || '操作失败') };
+}
 
 /** 预约与监听列表：进程内抢单任务 + 等级刷新开关。 */
 export async function fetchSchedulerAction(): Promise<{ ok: boolean; jobs: GrabJob[]; levelRefresh: boolean }> {

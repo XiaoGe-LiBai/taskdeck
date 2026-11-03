@@ -30,6 +30,17 @@ class GrabApiTests(unittest.TestCase):
         self.assertIn("预约时间已过", response[0].get_json()["msg"])
         schedule.assert_not_called()
 
+    def test_other_users_cannot_cancel_job(self) -> None:
+        from flask import Flask
+        app = Flask(__name__)
+        with app.test_request_context():
+            with mock.patch.object(grab_engine, "get_job", return_value={"account_id": 5}), \
+                 mock.patch.object(api_user, "_own_account", return_value=None), \
+                 mock.patch.object(grab_engine, "cancel") as cancel:
+                response = api_user.cancel_grab_api.__wrapped__("job")
+        self.assertIn("任务不存在", response[0].get_json()["msg"])
+        cancel.assert_not_called()
+
     def test_future_appointment_is_passed_to_scheduler(self) -> None:
         from flask import Flask
         app = Flask(__name__)
@@ -85,6 +96,12 @@ class GrabRoutingTests(unittest.TestCase):
         self.assertEqual(self.calls[-1]["server"], "SilkwormFusion")
         self.assertEqual(res["order_id"], 7)
 
+    def test_timeout_does_not_retry_other_route(self) -> None:
+        with mock.patch.object(xc, "xiaocan_rpc", side_effect=TimeoutError("timeout")) as rpc:
+            with self.assertRaises(TimeoutError):
+                actions.grab_promotion_quota(ACCOUNT, "123456789", lat=1, lon=2)
+        self.assertEqual(rpc.call_count, 1)
+
     def test_advance_and_redpack_are_forwarded(self) -> None:
         actions.grab_promotion_quota(ACCOUNT, "123456789", lat=1, lon=2, advance=True, redpack_id=88)
         body = self.calls[0]["payload"]
@@ -127,7 +144,7 @@ class GrabEngineTests(unittest.TestCase):
         with mock.patch.object(actions, "grab_promotion_quota", return_value={"order_id": 99}) as grab:
             job = grab_engine.schedule(1, "123456789", lat="1", lon="2")
             for _ in range(100):
-                if grab_engine.list_jobs()[0]["status"] in ("success", "failed"):
+                if grab_engine.list_jobs()[0]["status"] in ("success", "failed", "unknown"):
                     break
                 time.sleep(0.02)
         final = grab_engine.list_jobs()[0]
@@ -141,11 +158,11 @@ class GrabEngineTests(unittest.TestCase):
         with mock.patch.object(actions, "grab_promotion_quota", side_effect=RuntimeError("WAF 熔断中")):
             grab_engine.schedule(1, "123456789", lat="1", lon="2")
             for _ in range(100):
-                if grab_engine.list_jobs()[0]["status"] == "failed":
+                if grab_engine.list_jobs()[0]["status"] in ("failed", "unknown"):
                     break
                 time.sleep(0.02)
         final = grab_engine.list_jobs()[0]
-        self.assertEqual(final["status"], "failed")
+        self.assertEqual(final["status"], "unknown")
         self.assertIn("熔断", final["message"])
 
     def test_cancel_before_fire(self) -> None:
@@ -156,11 +173,37 @@ class GrabEngineTests(unittest.TestCase):
         grab.assert_not_called()
         self.assertEqual(grab_engine.list_jobs()[0]["status"], "cancelled")
 
+    def test_recovery_restores_future_and_marks_missed_and_unknown(self) -> None:
+        future = grab_engine.schedule(1, "123", at_ts=time.time() + 60, lat="1", lon="2")
+        missed = grab_engine.schedule(1, "456", at_ts=time.time() + 60, lat="1", lon="2")
+        running = grab_engine.schedule(1, "789", at_ts=time.time() + 60, lat="1", lon="2")
+        grab_engine.reset_for_tests()
+        core.get_db().execute("UPDATE xc_grab_jobs SET at_ts=? WHERE id=?", (time.time() - 1, missed["id"]))
+        core.get_db().execute("UPDATE xc_grab_jobs SET status='running' WHERE id=?", (running["id"],))
+        grab_engine.recover()
+        self.assertEqual(grab_engine.get_job(future["id"])["status"], "scheduled")
+        self.assertEqual(grab_engine.get_job(missed["id"])["status"], "missed")
+        self.assertEqual(grab_engine.get_job(running["id"])["status"], "unknown")
+        self.assertTrue(grab_engine.cancel(future["id"]))
+
+    def test_scope_filters_before_limit(self) -> None:
+        job = grab_engine.schedule(1, "123", at_ts=time.time() + 60, lat="1", lon="2")
+        self.assertEqual(grab_engine.list_jobs(account_ids=[]), [])
+        self.assertEqual(grab_engine.list_jobs(account_ids=[999]), [])
+        self.assertEqual(grab_engine.list_jobs(account_ids=[1])[0]["id"], job["id"])
+
+    def test_running_job_cannot_be_cancelled(self) -> None:
+        job = grab_engine.schedule(1, "123", at_ts=time.time() + 60, lat="1", lon="2")
+        grab_engine.reset_for_tests()
+        core.get_db().execute("UPDATE xc_grab_jobs SET status='running' WHERE id=?", (job["id"],))
+        self.assertFalse(grab_engine.cancel(job["id"]))
+        self.assertEqual(grab_engine.get_job(job["id"])["status"], "running")
+
     def test_missing_account_fails_cleanly(self) -> None:
         with mock.patch.object(actions, "grab_promotion_quota") as grab:
             grab_engine.schedule(999, "123456789", lat="1", lon="2")
             for _ in range(100):
-                if grab_engine.list_jobs()[0]["status"] == "failed":
+                if grab_engine.list_jobs()[0]["status"] in ("failed", "unknown"):
                     break
                 time.sleep(0.02)
         grab.assert_not_called()

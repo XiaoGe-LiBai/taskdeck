@@ -1577,6 +1577,7 @@ def schedule_grab_api(account_id: int):
             account_id, promotion_id, at_ts=at_ts, advance=bool(body.get("advance")),
             lat=body.get("lat"), lon=body.get("lon"), city_code=body.get("city_code"),
             store_platform=int(body.get("store_platform") or 1),
+            early_ms=int(body.get("early_ms") or 0), redpack_id=int(body.get("redpack_id") or 0),
         )
     except ValueError as exc:
         return core.fail(str(exc))
@@ -1615,16 +1616,37 @@ def xiaocan_job_logs_clear_api():
 @bp.get("/xiaocan/scheduler")
 @core.require_login
 def xiaocan_scheduler_api():
-    """调度中心视图：抢单任务（进程内）+ 等级刷新线程状态。"""
+    """当前用户可见的抢单任务和等级刷新状态。"""
     import grab_engine
-    scope = _my_account_ids()
-    jobs = grab_engine.list_jobs()
-    if scope is not None:
-        jobs = [job for job in jobs if job["account_id"] in scope]
+    jobs = grab_engine.list_jobs(account_ids=_my_account_ids())
     return core.ok({
         "grab_jobs": jobs,
         "level_refresh": core.get_setting("level_refresh_enabled", "true") == "true",
     })
+
+
+@bp.post("/xiaocan/grab-jobs/<job_id>/cancel")
+@core.require_login
+def cancel_grab_api(job_id: str):
+    import grab_engine
+    job = grab_engine.get_job(job_id)
+    if not job or not _own_account(job["account_id"]):
+        return core.fail("任务不存在")
+    if not grab_engine.cancel(job_id):
+        return core.fail("任务已经开始或结束，无法取消")
+    return core.ok({"cancelled": True})
+
+
+@bp.delete("/xiaocan/grab-jobs/<job_id>")
+@core.require_login
+def delete_grab_api(job_id: str):
+    import grab_engine
+    job = grab_engine.get_job(job_id)
+    if not job or not _own_account(job["account_id"]):
+        return core.fail("任务不存在")
+    if not grab_engine.delete(job_id):
+        return core.fail("运行中或等待中的任务不能删除")
+    return core.ok({"deleted": True})
 
 
 @bp.get("/xiaocan/time")

@@ -41,6 +41,7 @@ def _call(
     body: dict[str, Any],
     *,
     city_code: int | None = None,
+    retry_safe: bool = True,
 ) -> dict:
     """city_code 显式传入时优先（店铺类接口按请求里的定位走），否则用账号自带的。"""
     ctx = _ctx(account)
@@ -54,6 +55,7 @@ def _call(
         token=ctx["token"],
         app_id=XC_ACTIVITY_APP_ID,
         city_code=city_code if city_code is not None else ctx.get("city_code"),
+        retry_safe=retry_safe,
     )
 
 
@@ -359,9 +361,10 @@ def grab_promotion_quota(
         fallback = ("SilkwormFusion", "FusionService.FusionGrabPromotionQuota", {**body, "source": 2})
 
     try:
-        res = _call(account, primary[0], primary[1], primary[2], city_code=city)
-    except Exception:
-        # 主路由跨表未命中或方法不存在时换另一个；换完还失败就把错误抛给调用方
-        res = _call(account, fallback[0], fallback[1], fallback[2], city_code=city)
+        res = _call(account, primary[0], primary[1], primary[2], city_code=city, retry_safe=False)
+    except Exception as exc:
+        if not any(marker in str(exc) for marker in ("跨表未命中", "方法不存在")):
+            raise
+        res = _call(account, fallback[0], fallback[1], fallback[2], city_code=city, retry_safe=False)
     res["order_id"] = order_id_of(res)
     return res
