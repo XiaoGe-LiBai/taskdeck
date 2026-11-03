@@ -37,6 +37,29 @@ export async function xiaocanQrStartAction(): Promise<
 }
 
 /** 轮询扫码状态：waiting/scanned/done/expired/error */
+export async function xiaocanManualBindAction(
+  data: string,
+  accountId?: number,
+): Promise<{ ok: boolean; msg: string }> {
+  const text = data.trim();
+  if (!text) {
+    return { ok: false, msg: '请粘贴账号凭据' };
+  }
+  const result = await panelSend<{ accounts?: unknown[]; errors?: string[] }>('POST', '/xiaocan/bind', {
+    data: text,
+    account_id: accountId || undefined,
+  });
+  if (!result.ok) {
+    return { ok: false, msg: result.msg || '导入失败' };
+  }
+  const count = result.data?.accounts?.length ?? 0;
+  const errors = result.data?.errors ?? [];
+  return {
+    ok: true,
+    msg: errors.length ? `已导入 ${count} 个账号；${errors.join('；')}` : `已导入 ${count} 个账号`,
+  };
+}
+
 export async function xiaocanQrPollAction(
   sessionId: string,
 ): Promise<{ ok: true; state: string; detail: string } | { ok: false; error: string }> {

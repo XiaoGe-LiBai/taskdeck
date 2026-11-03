@@ -4,7 +4,7 @@
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { xiaocanQrPollAction, xiaocanQrStartAction } from './xiaocanActions';
+import { xiaocanManualBindAction, xiaocanQrPollAction, xiaocanQrStartAction } from './xiaocanActions';
 
 const STATUS_LABEL: Record<string, string> = {
   waiting: '等待扫码…',
@@ -24,6 +24,10 @@ const PENDING_STATES = new Set(['', 'waiting', 'pending', 'scanned']);
  */
 export const XiaocanBindPanel = () => {
   const router = useRouter();
+  const [mode, setMode] = useState<'qr' | 'manual'>('qr');
+  const [manualText, setManualText] = useState('');
+  const [manualMessage, setManualMessage] = useState('');
+  const [manualBusy, setManualBusy] = useState(false);
   const [image, setImage] = useState('');
   const [sessionId, setSessionId] = useState('');
   const [status, setStatus] = useState('');
@@ -92,16 +96,51 @@ export const XiaocanBindPanel = () => {
     };
   }, [sessionId, router]);
 
+  const submitManual = async () => {
+    setManualBusy(true);
+    setManualMessage('');
+    const result = await xiaocanManualBindAction(manualText);
+    setManualBusy(false);
+    setManualMessage(result.msg);
+    if (result.ok) {
+      setManualText('');
+      router.refresh();
+    }
+  };
+
   const statusText = succeeded
     ? '登录成功，账号已写入'
     : (error || STATUS_LABEL[status] || (status ? `状态：${status}` : '尚未开始'));
 
   return (
-    <div className="
-      flex flex-col gap-5
-      sm:flex-row
-    "
-    >
+    <div className="flex flex-col gap-4">
+      <div className="flex w-fit rounded-md border bg-muted/30 p-1">
+        <button type="button" onClick={() => setMode('qr')} className={`rounded px-3 py-1.5 text-sm ${mode === 'qr' ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground'}`}>扫码登录</button>
+        <button type="button" onClick={() => setMode('manual')} className={`rounded px-3 py-1.5 text-sm ${mode === 'manual' ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground'}`}>手动导入</button>
+      </div>
+
+      {mode === 'manual' ? (
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1 text-sm font-medium">
+            账号凭据
+            <textarea
+              value={manualText}
+              onChange={event => setManualText(event.target.value)}
+              rows={6}
+              placeholder="备注#小蚕UserId#silk_id#token；多个账号用 @ 或换行分隔"
+              className="w-full resize-y rounded-md border bg-background px-3 py-2 font-mono text-xs outline-none focus:border-primary"
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" disabled={manualBusy || !manualText.trim()} onClick={() => void submitManual()} className="rounded-md bg-brand-gradient px-4 py-2 text-sm text-white disabled:opacity-50">
+              {manualBusy ? '导入中…' : '验证并导入'}
+            </button>
+            <span className="text-xs text-muted-foreground">支持原版四段格式；同一 silk_id 再导入会更新凭据。</span>
+          </div>
+          {manualMessage && <div className="rounded-md border px-3 py-2 text-xs text-muted-foreground">{manualMessage}</div>}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-5 sm:flex-row">
       <div className="flex shrink-0 flex-col items-center gap-2">
         <div className="
           flex size-44 items-center justify-center overflow-hidden rounded-md
@@ -166,6 +205,8 @@ export const XiaocanBindPanel = () => {
           <li>二维码有效期 5 分钟，过期请点「重新生成二维码」</li>
         </ol>
       </div>
+        </div>
+      )}
     </div>
   );
 };
