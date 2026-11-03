@@ -18,9 +18,13 @@ def ensure_tables() -> None:
         id TEXT PRIMARY KEY, account_id INTEGER NOT NULL, promotion_id TEXT NOT NULL,
         lat TEXT NOT NULL, lon TEXT NOT NULL, city_code TEXT, store_platform INTEGER NOT NULL,
         interval_sec INTEGER NOT NULL, until_ts REAL NOT NULL, advance INTEGER NOT NULL DEFAULT 0,
-        redpack_id INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL, order_id INTEGER NOT NULL DEFAULT 0,
+        redpack_id INTEGER NOT NULL DEFAULT 0, redpack_mode INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL, order_id INTEGER NOT NULL DEFAULT 0,
         message TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, finished_at TEXT
     )""")
+    columns = {row["name"] for row in core.query("PRAGMA table_info(xc_stock_listeners)")}
+    if "redpack_mode" not in columns:
+        core.get_db().execute("ALTER TABLE xc_stock_listeners ADD COLUMN redpack_mode INTEGER NOT NULL DEFAULT 0")
 
 
 def get_job(job_id: str) -> dict | None:
@@ -67,7 +71,19 @@ def _run(job_id: str, event: threading.Event) -> None:
                 core.execute("UPDATE xc_stock_listeners SET status='expired', finished_at=? WHERE id=? AND status='monitoring' AND until_ts<=?", (core.iso(), job_id, time.time()))
                 return
             try:
-                result = actions.grab_promotion_quota(dict(account), job["promotion_id"], store_platform=job["store_platform"], advance=bool(job["advance"]), lat=job["lat"], lon=job["lon"], city_code=job["city_code"], redpack_id=job["redpack_id"])
+                redpack_id = int(job["redpack_id"] or 0)
+                if int(job["redpack_mode"]) == 0:
+                    try:
+                        redpack_id = actions.best_redpack_id(dict(account)) or 0
+                    except Exception:
+                        redpack_id = 0
+                elif int(job["redpack_mode"]) == 2:
+                    redpack_id = 0
+                result = actions.grab_promotion_quota(
+                    dict(account), job["promotion_id"], store_platform=job["store_platform"],
+                    advance=bool(job["advance"]), lat=job["lat"], lon=job["lon"],
+                    city_code=job["city_code"], redpack_id=redpack_id,
+                )
                 order_id = int(result.get("order_id") or 0)
                 status = "success" if order_id else "failed"
                 message = "" if order_id else (result.get("msg") or "未返回订单号")
@@ -85,19 +101,22 @@ def _run(job_id: str, event: threading.Event) -> None:
 
 
 def create(account_id: int, promotion_id: str, *, lat, lon, city_code, store_platform=1,
-           interval_sec=5, timeout_sec=3600, advance=False, redpack_id=0) -> dict:
+           interval_sec=5, timeout_sec=3600, advance=False, redpack_id=0,
+           redpack_mode=0) -> dict:
     ensure_tables()
     _, pid = actions._clean_promo_id(promotion_id)
     if pid <= 0 or pid >= actions.SHANGJIN_ID_FLOOR:
         raise ValueError("当前活动类型暂不支持名额监听")
     flat, flon, city = actions._geo(lat, lon, city_code)
     interval, timeout = int(interval_sec), int(timeout_sec)
-    if not 3 <= interval <= 60 or not 60 <= timeout <= 86400 or int(redpack_id) < 0 or int(store_platform) not in (1, 2, 3):
+    if not 3 <= interval <= 60 or not 60 <= timeout <= 86400 or int(redpack_id) < 0 or int(redpack_mode) not in (0, 1, 2) or int(store_platform) not in (1, 2, 3):
         raise ValueError("监听参数无效")
     job_id = f"stock-{uuid.uuid4().hex[:12]}"
     conn = core.get_db()
     conn.execute("BEGIN IMMEDIATE")
     try:
+        if int(redpack_mode) == 1 and int(redpack_id) <= 0:
+            raise ValueError("请选择红包")
         total = conn.execute("SELECT COUNT(*) FROM xc_stock_listeners WHERE status IN ('monitoring','running')").fetchone()[0]
         own = conn.execute("SELECT COUNT(*) FROM xc_stock_listeners WHERE account_id=? AND status IN ('monitoring','running')", (account_id,)).fetchone()[0]
         duplicate = conn.execute("SELECT 1 FROM xc_stock_listeners WHERE account_id=? AND promotion_id=? AND store_platform=? AND status IN ('monitoring','running')", (account_id, str(promotion_id), int(store_platform))).fetchone()
@@ -106,8 +125,8 @@ def create(account_id: int, promotion_id: str, *, lat, lon, city_code, store_pla
         if total >= 200 or own >= 20:
             raise ValueError("监听任务过多，请先停止或等待已有任务")
         conn.execute("""INSERT INTO xc_stock_listeners
-            (id,account_id,promotion_id,lat,lon,city_code,store_platform,interval_sec,until_ts,advance,redpack_id,status,created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,'monitoring',?)""", (job_id, account_id, str(promotion_id), str(flat), str(flon), str(city), int(store_platform), interval, time.time() + timeout, int(advance), int(redpack_id), core.iso()))
+            (id,account_id,promotion_id,lat,lon,city_code,store_platform,interval_sec,until_ts,advance,redpack_id,redpack_mode,status,created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'monitoring',?)""", (job_id, account_id, str(promotion_id), str(flat), str(flon), str(city), int(store_platform), interval, time.time() + timeout, int(advance), int(redpack_id), int(redpack_mode), core.iso()))
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")

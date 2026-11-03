@@ -305,6 +305,27 @@ def _clean_promo_id(promotion_id) -> tuple[str, int]:
         raise ValueError(f"promotion_id 不合法：{promotion_id!r}") from None
 
 
+def best_redpack_id(account: dict) -> int | None:
+    """Resolve the upstream's highest-value usable red packet."""
+    response = _call(account, "get_user_max_redpack", {})
+    candidates = []
+    for key in ("rep_pack", "redpack", "user_red_pack", "max_red_pack"):
+        value = response.get(key)
+        if isinstance(value, dict):
+            candidates.append(value)
+    for key in ("platform_red_packs", "redpacks", "list"):
+        values = response.get(key)
+        if isinstance(values, list):
+            candidates.extend(value for value in values if isinstance(value, dict))
+    if not candidates:
+        return None
+    usable = [item for item in candidates if int(item.get("user_red_pack_id") or item.get("id") or 0) > 0]
+    if not usable:
+        return None
+    selected = max(usable, key=lambda item: int(item.get("reward_num") or item.get("value_num") or 0))
+    return int(selected.get("user_red_pack_id") or selected.get("id"))
+
+
 def promotion_stock(account: dict, promotion_id, *, store_platform: int = 1, city_code=None) -> int:
     """查询指定平台的活动库存；未知库存不能当作有库存。"""
     _, pid = _clean_promo_id(promotion_id)

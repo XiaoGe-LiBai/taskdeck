@@ -1578,6 +1578,7 @@ def schedule_grab_api(account_id: int):
             lat=body.get("lat"), lon=body.get("lon"), city_code=body.get("city_code"),
             store_platform=int(body.get("store_platform") or 1),
             early_ms=int(body.get("early_ms") or 0), redpack_id=int(body.get("redpack_id") or 0),
+            redpack_mode=int(body.get("redpack_mode") if body.get("redpack_mode") is not None else (1 if body.get("redpack_id") else 0)),
         )
     except ValueError as exc:
         return core.fail(str(exc))
@@ -1641,6 +1642,7 @@ def create_stock_listener_api(account_id: int):
             city_code=body.get("city_code"), store_platform=int(body.get("store_platform") or 1),
             interval_sec=int(body.get("interval_sec") or 5), timeout_sec=int(body.get("timeout_sec") or 3600),
             advance=bool(body.get("advance")), redpack_id=int(body.get("redpack_id") or 0),
+            redpack_mode=int(body.get("redpack_mode") if body.get("redpack_mode") is not None else (1 if body.get("redpack_id") else 0)),
         )
     except (ValueError, TypeError) as exc:
         return core.fail(str(exc))

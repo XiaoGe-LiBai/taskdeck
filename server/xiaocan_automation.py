@@ -171,7 +171,7 @@ TASKS: list[dict] = [
     {
         "key": "vip_sign",
         "label": "会员每日签到",
-        "tip": "会员打卡 + 签到抽奖（抽奖依赖当天已签到，顺序固定）",
+        "tip": "VIP 扩展礼盒（签到抽奖、里程碑、成长礼包与会员特权核验）",
         "category": "daily",
         "vip": "VIP2+ / SVIP",
         "time_label": "每日 08:30",

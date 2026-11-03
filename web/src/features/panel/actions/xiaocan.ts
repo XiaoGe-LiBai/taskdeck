@@ -178,6 +178,7 @@ export async function grabPromotionAction(params: {
   at?: string;
   earlyMs?: number;
   redpackId?: number;
+  redpackMode?: number;
 }): Promise<{ ok: boolean; msg: string }> {
   const payload: Record<string, unknown> = {
     promotion_id: params.promotionId,
@@ -187,6 +188,7 @@ export async function grabPromotionAction(params: {
     city_code: params.cityCode || undefined,
     early_ms: params.earlyMs ?? 0,
     redpack_id: params.redpackId ?? 0,
+    redpack_mode: params.redpackMode ?? (params.redpackId ? 1 : 0),
   };
   if (params.at) {
     payload.at = params.at;
@@ -214,6 +216,7 @@ export async function createStockListenerAction(params: {
   timeoutSec: number;
   advance: boolean;
   redpackId: number;
+  redpackMode: number;
 }): Promise<{ ok: boolean; msg: string }> {
   const response = await panelSend('POST', `/xiaocan/accounts/${params.accountId}/stock-listener`, {
     promotion_id: params.promotionId,
@@ -225,6 +228,7 @@ export async function createStockListenerAction(params: {
     timeout_sec: params.timeoutSec,
     advance: params.advance,
     redpack_id: params.redpackId,
+    redpack_mode: params.redpackMode,
   });
   return { ok: response.ok, msg: response.ok ? '名额监听已启动' : (response.msg || '创建失败') };
 }
@@ -240,6 +244,7 @@ export type GrabJob = {
   early_ms?: number;
   advance?: number;
   redpack_id?: number;
+  redpack_mode?: number;
   order_id?: number;
   interval_sec?: number;
   until_ts?: number;

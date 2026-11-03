@@ -195,6 +195,7 @@ export const XiaocanSniping = (props: {
   const [advance, setAdvance] = useState(false);
   const [earlyMs, setEarlyMs] = useState(0);
   const [redpackId, setRedpackId] = useState('');
+  const [redpackMode, setRedpackMode] = useState(0);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const { location, open: openLocation } = useGeoLocation();
 
@@ -315,6 +316,7 @@ export const XiaocanSniping = (props: {
           timeoutSec: timeoutMinutes * 60,
           advance,
           redpackId: redpackId ? Number(redpackId) : 0,
+          redpackMode,
         })
       : await grabPromotionAction({
           accountId,
@@ -323,6 +325,7 @@ export const XiaocanSniping = (props: {
           advance,
           earlyMs,
           redpackId: redpackId ? Number(redpackId) : 0,
+          redpackMode,
           lat: location?.lat,
           lon: location?.lon,
           cityCode: location?.cityCode,
@@ -393,6 +396,7 @@ export const XiaocanSniping = (props: {
                   setAppointmentMode('stock');
                   setAdvance(false);
                   setRedpackId('');
+                  setRedpackMode(0);
                   setIntervalSec(5);
                   setTimeoutMinutes(60);
                   setAppointment(active);
@@ -414,6 +418,7 @@ export const XiaocanSniping = (props: {
                   setAdvance(false);
                   setEarlyMs(0);
                   setRedpackId('');
+                  setRedpackMode(0);
                   setAppointment(active);
                 }}
                 className="
@@ -724,9 +729,19 @@ export const XiaocanSniping = (props: {
                   </>
                 )}
             <label className="mt-3 flex flex-col gap-1 text-sm">
-              指定红包 ID（不填则不指定）
-              <Input type="number" min={1} value={redpackId} onChange={event => setRedpackId(event.target.value)} />
+              红包策略
+              <select className="h-9 rounded-md border bg-background px-2 text-sm" value={redpackMode} onChange={event => setRedpackMode(Number(event.target.value))}>
+                <option value={0}>自动匹配最高红包</option>
+                <option value={1}>指定红包</option>
+                <option value={2}>不使用红包</option>
+              </select>
             </label>
+            {redpackMode === 1 && (
+              <label className="mt-3 flex flex-col gap-1 text-sm">
+                红包 ID
+                <Input type="number" min={1} value={redpackId} onChange={event => setRedpackId(event.target.value)} />
+              </label>
+            )}
             <div className="mt-5 flex justify-end gap-2">
               <button type="button" className="rounded-md border px-3 py-2 text-sm" onClick={() => setAppointment(null)}>取消</button>
               <button type="button" className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50" disabled={Boolean(pending)} onClick={() => void scheduleAppointment()}>{appointmentMode === 'stock' ? '启动监听' : '确认预约'}</button>
@@ -757,6 +772,9 @@ export const XiaocanSniping = (props: {
                         {job.id.startsWith('stock-')
                           ? `监听至 ${job.until_ts ? new Date(job.until_ts * 1000).toLocaleString('zh-CN', { hour12: false }) : '未知'} · 间隔 ${job.interval_sec} 秒`
                           : `计划时间 ${job.at || '立即'} · 提前 ${job.early_ms || 0} 毫秒${job.advance ? ' · 超前券' : ''}${job.redpack_id ? ` · 红包 ${job.redpack_id}` : ''}`}
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {`红包策略：${job.redpack_mode === 0 ? '自动匹配' : job.redpack_mode === 1 ? `指定 #${job.redpack_id}` : '不使用'}`}
                       </div>
                       {job.message && <div className="mt-1 text-xs text-muted-foreground">{job.message}</div>}
                     </div>

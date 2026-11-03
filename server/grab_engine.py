@@ -27,8 +27,12 @@ def ensure_tables() -> None:
         lat TEXT, lon TEXT, city_code TEXT, store_platform INTEGER NOT NULL DEFAULT 1,
         status TEXT NOT NULL, order_id INTEGER NOT NULL DEFAULT 0, message TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT,
-        early_ms INTEGER NOT NULL DEFAULT 0, redpack_id INTEGER NOT NULL DEFAULT 0
+        early_ms INTEGER NOT NULL DEFAULT 0, redpack_id INTEGER NOT NULL DEFAULT 0,
+        redpack_mode INTEGER NOT NULL DEFAULT 0
     )""")
+    columns = {row["name"] for row in core.query("PRAGMA table_info(xc_grab_jobs)")}
+    if "redpack_mode" not in columns:
+        core.get_db().execute("ALTER TABLE xc_grab_jobs ADD COLUMN redpack_mode INTEGER NOT NULL DEFAULT 0")
     core.get_db().execute("CREATE INDEX IF NOT EXISTS xc_grab_jobs_account ON xc_grab_jobs(account_id, created_at DESC)")
 
 
@@ -78,10 +82,18 @@ def _fire(job_id: str, cancelled: threading.Event) -> None:
             account = core.query_one("SELECT * FROM accounts WHERE id=?", (job["account_id"],))
             if not account:
                 raise ValueError("账号不存在")
+            redpack_id = int(job["redpack_id"] or 0)
+            if int(job["redpack_mode"]) == 0:
+                try:
+                    redpack_id = actions.best_redpack_id(dict(account)) or 0
+                except Exception:
+                    redpack_id = 0
+            elif int(job["redpack_mode"]) == 2:
+                redpack_id = 0
             result = actions.grab_promotion_quota(
                 dict(account), job["promotion_id"], advance=bool(job["advance"]),
                 lat=job["lat"], lon=job["lon"], city_code=job["city_code"],
-                store_platform=job["store_platform"], redpack_id=job["redpack_id"],
+                store_platform=job["store_platform"], redpack_id=redpack_id,
             )
             order_id = int(result.get("order_id") or 0)
             status = "success" if order_id else "failed"
@@ -106,10 +118,11 @@ def _fire(job_id: str, cancelled: threading.Event) -> None:
 
 def schedule(account_id: int, promotion_id: str, *, at_ts: float | None = None,
              advance: bool = False, lat=None, lon=None, city_code=None,
-             store_platform: int = 1, early_ms: int = 0, redpack_id: int = 0) -> dict:
+             store_platform: int = 1, early_ms: int = 0, redpack_id: int = 0,
+             redpack_mode: int = 0) -> dict:
     ensure_tables()
     target = float(at_ts) if at_ts is not None else _now()
-    if not math.isfinite(target) or not 0 <= int(early_ms) <= 60000 or int(redpack_id) < 0:
+    if not math.isfinite(target) or not 0 <= int(early_ms) <= 60000 or int(redpack_id) < 0 or int(redpack_mode) not in (0, 1, 2):
         raise ValueError("预约参数无效")
     if at_ts is not None and target - int(early_ms) / 1000 <= _now():
         raise ValueError("预约时间已过，请刷新后重试")
@@ -119,16 +132,18 @@ def schedule(account_id: int, promotion_id: str, *, at_ts: float | None = None,
     conn = core.get_db()
     conn.execute("BEGIN IMMEDIATE")
     try:
+        if int(redpack_mode) == 1 and int(redpack_id) <= 0:
+            raise ValueError("请选择红包")
         active = conn.execute("SELECT COUNT(*) FROM xc_grab_jobs WHERE status IN ('scheduled', 'running')").fetchone()[0]
         account_active = conn.execute("SELECT COUNT(*) FROM xc_grab_jobs WHERE account_id=? AND status IN ('scheduled', 'running')", (account_id,)).fetchone()[0]
         if active >= MAX_JOBS or account_active >= 20:
             raise ValueError("预约任务过多，请先停止或等待已有任务")
         conn.execute("""INSERT INTO xc_grab_jobs
             (id, account_id, promotion_id, at_ts, at, advance, lat, lon, city_code,
-             store_platform, status, created_at, early_ms, redpack_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?)""",
+             store_platform, status, created_at, early_ms, redpack_id, redpack_mode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?)""",
             (job_id, int(account_id), str(promotion_id), target, _iso_from_ts(target),
-             int(advance), lat, lon, city_code, int(store_platform), now, int(early_ms), int(redpack_id)))
+             int(advance), lat, lon, city_code, int(store_platform), now, int(early_ms), int(redpack_id), int(redpack_mode)))
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")

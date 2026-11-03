@@ -93,19 +93,28 @@ def daily_earn(account: dict, params: dict) -> str:
 
 
 def vip_sign(account: dict, params: dict) -> str:
-    """会员每日签到 + 签到抽奖（抽奖依赖当天已签到，所以顺序固定）。"""
-    steps = []
-    try:
-        _call(account, "do_user_sign", {})
-        steps.append("签到成功")
-    except Exception as exc:
-        steps.append("已签到" if _already(str(exc)) else f"签到失败（{exc}）")
-    try:
-        _call(account, "sign_in_lottery", {})
-        steps.append("抽奖成功")
-    except Exception as exc:
-        steps.append("抽奖已做" if _already(str(exc)) else f"抽奖失败（{exc}）")
-    return "；".join(steps)
+    """执行会员签到抽奖并核验成长权益。"""
+    results, failures = [], []
+    for key, label in (
+        ("do_user_sign", "会员签到"),
+        ("get_user_sign_in_days", "签到状态"),
+        ("sign_in_lottery", "签到抽奖"),
+        ("get_sign_in_node", "签到里程碑"),
+        ("get_vip_up_gift", "会员成长礼包"),
+        ("list_vip_gifts", "会员特权"),
+        ("get_vip_task", "成长任务"),
+    ):
+        try:
+            _call(account, key, {})
+            results.append(f"{label}完成")
+        except Exception as exc:
+            if _already(str(exc)):
+                results.append(f"{label}已完成")
+            else:
+                failures.append(f"{label}：{exc}")
+    if failures:
+        raise RuntimeError("；".join(results + failures))
+    return "；".join(results)
 
 
 def free_lottery(account: dict, params: dict) -> str:
