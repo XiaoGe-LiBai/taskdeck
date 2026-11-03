@@ -4,6 +4,7 @@ import type { GrabJob, StoreItem } from './actions';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { createStockListenerAction, fetchSchedulerAction, fetchStoresAction, grabPromotionAction, manageGrabJobAction } from './actions';
+import { appointmentTime } from './appointmentTime';
 import { useGeoLocation } from './location/LocationContext';
 import { Card, Empty, Tag } from './Ui';
 
@@ -295,8 +296,9 @@ export const XiaocanSniping = (props: {
     }
     const id = promoId(appointment);
     const startsAt = Number(appointment.start_timestamp ?? 0);
-    if (!id || (appointmentMode === 'appointment' && (!Number.isFinite(startsAt) || startsAt * 1000 <= Date.now()))) {
-      setMessage({ ok: false, text: '活动开抢时间无效或已到，请刷新店铺后重试' });
+    const scheduledAt = appointmentTime(startsAt, advance && appointmentMode === 'appointment');
+    if (!id || (appointmentMode === 'appointment' && (!Number.isFinite(scheduledAt) || scheduledAt * 1000 <= Date.now()))) {
+      setMessage({ ok: false, text: '预约执行时间已过，请刷新店铺或调整超前券设置' });
       setAppointment(null);
       return;
     }
@@ -317,7 +319,7 @@ export const XiaocanSniping = (props: {
       : await grabPromotionAction({
           accountId,
           promotionId: id,
-          at: new Date(startsAt * 1000).toISOString(),
+          at: new Date(scheduledAt * 1000).toISOString(),
           advance,
           earlyMs,
           redpackId: redpackId ? Number(redpackId) : 0,
@@ -692,13 +694,15 @@ export const XiaocanSniping = (props: {
             <p className="mt-3 text-sm">{storeName(appointment)}</p>
             {appointmentMode === 'appointment' && (
               <p className="mt-1 text-sm text-muted-foreground">
-                {`开抢时间：${new Date(Number(appointment.start_timestamp) * 1000).toLocaleString('zh-CN', { hour12: false })}`}
+                {`执行时间：${new Date(appointmentTime(Number(appointment.start_timestamp), advance) * 1000).toLocaleString('zh-CN', { hour12: false })}`}
               </p>
             )}
-            <label className="mt-4 flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={advance} onChange={event => setAdvance(event.target.checked)} />
-              使用超前券
-            </label>
+            {appointmentMode === 'appointment' && (
+              <label className="mt-4 flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={advance} onChange={event => setAdvance(event.target.checked)} />
+                使用超前券（提前 30 分钟）
+              </label>
+            )}
             {appointmentMode === 'appointment'
               ? (
                   <label className="mt-4 flex flex-col gap-1 text-sm">
