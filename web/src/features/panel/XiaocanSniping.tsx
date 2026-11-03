@@ -187,6 +187,8 @@ export const XiaocanSniping = (props: {
   const [jobs, setJobs] = useState<GrabJob[]>([]);
   const [picked, setPicked] = useState<Record<string, string>>({});
   const [pending, setPending] = useState('');
+  const [appointment, setAppointment] = useState<StoreItem | null>(null);
+  const [advance, setAdvance] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const { location, open: openLocation } = useGeoLocation();
 
@@ -259,8 +261,37 @@ export const XiaocanSniping = (props: {
       cityCode: location?.cityCode,
     });
     setPending('');
-    setMessage({ ok: result.ok, text: result.ok ? `抢单成功：${result.msg}` : result.msg });
+    setMessage({ ok: result.ok, text: result.msg });
     if (result.ok) {
+      void loadJobs();
+    }
+  };
+
+  const scheduleAppointment = async () => {
+    if (!appointment || !requireLocation()) {
+      return;
+    }
+    const id = promoId(appointment);
+    const startsAt = Number(appointment.start_timestamp ?? 0);
+    if (!id || !Number.isFinite(startsAt) || startsAt * 1000 <= Date.now()) {
+      setMessage({ ok: false, text: '活动开抢时间无效或已到，请刷新店铺后重试' });
+      setAppointment(null);
+      return;
+    }
+    setPending(`grab-${id}`);
+    const result = await grabPromotionAction({
+      accountId,
+      promotionId: id,
+      at: new Date(startsAt * 1000).toISOString(),
+      advance,
+      lat: location?.lat,
+      lon: location?.lon,
+      cityCode: location?.cityCode,
+    });
+    setPending('');
+    setMessage({ ok: result.ok, text: result.msg });
+    if (result.ok) {
+      setAppointment(null);
       void loadJobs();
     }
   };
@@ -331,7 +362,10 @@ export const XiaocanSniping = (props: {
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void grab(id)}
+                onClick={() => {
+                  setAdvance(false);
+                  setAppointment(active);
+                }}
                 className="
                   rounded-md border border-primary/40 px-2.5 py-1 text-xs
                   font-medium text-primary transition-colors
@@ -603,6 +637,26 @@ export const XiaocanSniping = (props: {
         </div>
       )}
 
+      {appointment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="appointment-title" className="w-full max-w-md rounded-lg border bg-background p-5 shadow-xl">
+            <h3 id="appointment-title" className="text-base font-semibold">预约抢单</h3>
+            <p className="mt-3 text-sm">{storeName(appointment)}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {`开抢时间：${new Date(Number(appointment.start_timestamp) * 1000).toLocaleString('zh-CN', { hour12: false })}`}
+            </p>
+            <label className="mt-4 flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={advance} onChange={event => setAdvance(event.target.checked)} />
+              使用超前券
+            </label>
+            <p className="mt-3 text-xs text-muted-foreground">任务保存在当前服务进程中，服务重启后需要重新预约。</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" className="rounded-md border px-3 py-2 text-sm" onClick={() => setAppointment(null)}>取消</button>
+              <button type="button" className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50" disabled={Boolean(pending)} onClick={() => void scheduleAppointment()}>确认预约</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="mt-3">
         {tab === 'stores' && renderTable(normalRows, '暂无附近店铺')}
         {tab === 'brand' && renderTable(brandRows, '当前列表里没有需要大牌券的店')}

@@ -1570,6 +1570,8 @@ def schedule_grab_api(account_id: int):
             if not parsed:
                 return core.fail("时间格式不正确")
             at_ts = parsed.timestamp()
+        if not math.isfinite(at_ts) or at_ts <= core.now_dt().timestamp():
+            return core.fail("预约时间已过或无效，请刷新后重试")
     try:
         job = grab_engine.schedule(
             account_id, promotion_id, at_ts=at_ts, advance=bool(body.get("advance")),

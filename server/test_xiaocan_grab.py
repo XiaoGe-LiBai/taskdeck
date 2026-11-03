@@ -11,11 +11,36 @@ import unittest
 from unittest import mock
 
 import core
+import api_user
 import grab_engine
 import xiaocan_actions as actions
 import xiaocan_bridge as xc
 
 ACCOUNT = {"id": 1, "account_info": "9001", "xc_user_id": "8002", "access_token": "tok"}
+
+
+class GrabApiTests(unittest.TestCase):
+    def test_expired_appointment_is_not_executed_immediately(self) -> None:
+        from flask import Flask
+        app = Flask(__name__)
+        with app.test_request_context(json={"promotion_id": "123456789", "at": time.time() - 1}):
+            with mock.patch.object(api_user, "_own_account", return_value=ACCOUNT), \
+                 mock.patch.object(grab_engine, "schedule") as schedule:
+                response = api_user.schedule_grab_api.__wrapped__(1)
+        self.assertIn("预约时间已过", response[0].get_json()["msg"])
+        schedule.assert_not_called()
+
+    def test_future_appointment_is_passed_to_scheduler(self) -> None:
+        from flask import Flask
+        app = Flask(__name__)
+        target = time.time() + 60
+        with app.test_request_context(json={"promotion_id": "123456789", "at": target}):
+            with mock.patch.object(api_user, "_own_account", return_value=ACCOUNT), \
+                 mock.patch.object(grab_engine, "schedule", return_value={"id": "1", "at": "later"}) as schedule, \
+                 mock.patch.object(api_user.xiaocan_stats, "record_job"):
+                response = api_user.schedule_grab_api.__wrapped__(1)
+        self.assertEqual(response.get_json()["code"], 200)
+        self.assertEqual(schedule.call_args.kwargs["at_ts"], target)
 
 
 class GrabRoutingTests(unittest.TestCase):
