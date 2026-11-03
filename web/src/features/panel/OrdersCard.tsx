@@ -1,13 +1,14 @@
 'use client';
 
 import type { XcOrder } from './actions';
-import { Fragment, useActionState, useState } from 'react';
+import { Fragment, useActionState, useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import {
   createOrderAction,
   deleteOrderAction,
   orderAction,
   submitPlatformIdAction,
+  syncOrdersAction,
   updateOrderAction,
 } from './actions';
 import {
@@ -34,7 +35,16 @@ export const OrdersCard = (props: {
   const [rowMessage, setRowMessage] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState('');
   const [filter, setFilter] = useState('');
+  const [accountFilter, setAccountFilter] = useState(0);
+  const [platformFilter, setPlatformFilter] = useState('');
+  const [keyword, setKeyword] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState('');
   const [editing, setEditing] = useState<number | null>(null);
+
+  const accountNames = useMemo(() => Object.fromEntries(
+    props.accounts.map(account => [account.id, account.nickname || account.account_info]),
+  ), [props.accounts]);
 
   const counts = Object.fromEntries(
     ORDER_STATUS_FILTERS.map(key => [
@@ -42,7 +52,22 @@ export const OrdersCard = (props: {
       key ? props.orders.filter(o => o.status === key).length : props.orders.length,
     ]),
   );
-  const visible = filter ? props.orders.filter(order => order.status === filter) : props.orders;
+  const visible = props.orders.filter(order => {
+    if (filter && order.status !== filter) return false;
+    if (accountFilter && order.account_id !== accountFilter) return false;
+    if (platformFilter && order.platform !== platformFilter) return false;
+    const query = keyword.trim().toLowerCase();
+    if (query && !`${order.store_name} ${order.order_sn} ${order.platform_order_id || ''}`.toLowerCase().includes(query)) return false;
+    return true;
+  });
+
+  const sync = async () => {
+    setSyncing(true);
+    const result = await syncOrdersAction(accountFilter || undefined);
+    setSyncing(false);
+    setSyncMessage(result.msg);
+    if (result.ok) window.location.reload();
+  };
 
   const runAction = async (id: number, action: 'delay-voucher' | 'use-free-card') => {
     setBusy(`${id}-${action}`);
@@ -67,7 +92,7 @@ export const OrdersCard = (props: {
   return (
     <Card
       title="霸王餐订单"
-      description="手工录入订单，提交外卖平台单号进入小蚕审核；支持延时券、免单卡与状态流转"
+      description="同步小蚕平台真实订单，也可手工补录；支持提交外卖单号、延时券与免单卡"
     >
       <form
         action={createAction}
@@ -142,6 +167,32 @@ export const OrdersCard = (props: {
           </button>
         </div>
       </form>
+      <div className="mb-3 flex flex-wrap items-end gap-2 rounded-md border bg-muted/20 p-3">
+        <label className="flex flex-col gap-1 text-xs font-medium">
+          账号
+          <select value={accountFilter} onChange={event => setAccountFilter(Number(event.target.value))} className="h-8 min-w-36 rounded-md border bg-background px-2 text-xs">
+            <option value={0}>全部账号</option>
+            {props.accounts.map(account => <option key={account.id} value={account.id}>{account.nickname || account.account_info}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-medium">
+          平台
+          <select value={platformFilter} onChange={event => setPlatformFilter(event.target.value)} className="h-8 rounded-md border bg-background px-2 text-xs">
+            <option value="">全部平台</option>
+            <option value="meituan">美团</option>
+            <option value="eleme">饿了么</option>
+            <option value="jingdong">京东</option>
+          </select>
+        </label>
+        <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs font-medium">
+          搜索
+          <Input value={keyword} onChange={event => setKeyword(event.target.value)} placeholder="店铺名或订单号" className="h-8 text-xs" />
+        </label>
+        <button type="button" disabled={syncing || props.accounts.length === 0} onClick={() => void sync()} className="h-8 rounded-md bg-brand-gradient px-3 text-xs font-semibold text-white disabled:opacity-50">
+          {syncing ? '同步中…' : '同步平台订单'}
+        </button>
+        {syncMessage && <span className="w-full text-xs text-muted-foreground">{syncMessage}</span>}
+      </div>
       {createState && (
         <div className="mb-3 text-xs text-muted-foreground">{createState.replace(/^(ok|error):/, '')}</div>
       )}
@@ -202,6 +253,11 @@ export const OrdersCard = (props: {
                           >
                             {order.order_sn.slice(0, 24)}
                           </div>
+                          {order.account_id && (
+                            <div className="mt-0.5 text-[10px] text-muted-foreground">
+                              {`账号：${accountNames[order.account_id] ?? `#${order.account_id}`}`}
+                            </div>
+                          )}
                           {order.note && (
                             <div className="
                               mt-0.5 text-[10px] text-muted-foreground

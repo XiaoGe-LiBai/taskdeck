@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any
 
 import core
@@ -55,16 +56,152 @@ def _scope(account_ids: list[int] | None) -> tuple[str, tuple]:
 
 
 def list_orders(account_ids: list[int] | None = None, *, status: str = "",
-                limit: int = 100) -> list[dict]:
+                account_id: int | None = None, platform: str = "",
+                keyword: str = "", limit: int = 100) -> list[dict]:
     ensure_tables()
     where, args = _scope(account_ids)
     sql = f"SELECT * FROM xc_orders WHERE {where}"
+    if account_id is not None:
+        if account_ids is not None and account_id not in account_ids:
+            return []
+        sql += " AND account_id=?"
+        args += (account_id,)
     if status in STATUSES:
         sql += " AND status=?"
         args += (status,)
+    platform = stats.PLATFORM_ALIAS.get(platform, platform)
+    if platform in ("meituan", "eleme", "jingdong"):
+        sql += " AND platform=?"
+        args += (platform,)
+    keyword = str(keyword or "").strip()
+    if keyword:
+        sql += " AND (store_name LIKE ? OR order_sn LIKE ? OR platform_order_id LIKE ?)"
+        like = f"%{keyword}%"
+        args += (like, like, like)
     sql += " ORDER BY id DESC LIMIT ?"
     rows = core.query(sql, (*args, max(1, min(500, limit))))
     return [dict(r) for r in rows]
+
+
+def _int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _money(value: Any) -> float:
+    try:
+        amount = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return round(amount / 100 if abs(amount) >= 100 else amount, 2)
+
+
+def _platform(value: Any) -> str:
+    return {2: "eleme", 3: "jingdong"}.get(_int(value), "meituan")
+
+
+def _status(value: Any) -> str:
+    return {0: "pending", 1: "auditing", 2: "completed",
+            3: "rejected", 4: "cancelled"}.get(_int(value), "pending")
+
+
+def _time_text(value: Any) -> str:
+    timestamp = _int(value)
+    if timestamp <= 0:
+        return core.iso()
+    return datetime.fromtimestamp(timestamp).astimezone().isoformat(timespec="seconds")
+
+
+def _normalize_upstream_order(account_id: int, raw: dict) -> dict | None:
+    promotion_id = _int(raw.get("promotion_order_id"))
+    order_sn = str(raw.get("order_id_str") or promotion_id or "").strip()
+    if not order_sn:
+        return None
+    promotion = raw.get("store_promotion") or {}
+    store = promotion.get("store") or {}
+    order_type = _int(raw.get("order_type"))
+    ratio_raw = float(raw.get("ratio") or 0)
+    ratio = round(ratio_raw / 100 if ratio_raw >= 100 else ratio_raw, 2)
+    percent_order = order_type == 12 or ratio > 0 or bool(raw.get("if_mt_fan"))
+    order_money = _money(raw.get("platform_order_total_price")) if percent_order else _money(raw.get("store_platform_order_money"))
+    if order_money <= 0:
+        order_money = _money(raw.get("platform_order_total_price"))
+    rebate_money = _money(raw.get("user_rebate"))
+    if percent_order and rebate_money <= 0:
+        rebate_money = _money(raw.get("max_commission") or raw.get("store_platform_order_money"))
+    status = _status(raw.get("order_status"))
+    created = _time_text(raw.get("order_time"))
+    return {
+        "account_id": account_id,
+        "order_sn": order_sn,
+        "store_name": str(store.get("name") or promotion.get("store_name") or "小蚕霸王餐").strip(),
+        "platform": _platform(raw.get("store_platform")),
+        "order_money": order_money,
+        "rebate_money": rebate_money,
+        "status": status,
+        "promotion_order_id": promotion_id,
+        "platform_order_id": str(raw.get("platform_order_id") or "").strip(),
+        "order_type": order_type,
+        "rebate_ratio": ratio,
+        "created_time": created,
+        "settled_time": created if status == "completed" else None,
+        "updated_time": core.iso(),
+    }
+
+
+def sync_account_orders(account: dict, *, limit: int = 200) -> int:
+    """Pull real platform orders for one bound account and upsert by official order id."""
+    ensure_tables()
+    synced = 0
+    page_size = 50
+    maximum = max(1, min(int(limit or 200), 500))
+    for offset in range(0, maximum, page_size):
+        response = methods.call(account, "get_order_list", {
+            "order_status": 99,
+            "offset": offset,
+            "number": min(page_size, maximum - offset),
+        })
+        raw_orders = response.get("order_list") or response.get("orders") or []
+        if not isinstance(raw_orders, list):
+            break
+        for raw in raw_orders:
+            if not isinstance(raw, dict):
+                continue
+            data = _normalize_upstream_order(int(account["id"]), raw)
+            if not data:
+                continue
+            core.get_db().execute(
+                "INSERT INTO xc_orders (account_id,order_sn,store_name,platform,order_money,rebate_money,status,"
+                "promotion_order_id,platform_order_id,order_type,rebate_ratio,created_time,settled_time,updated_time) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(order_sn) DO UPDATE SET account_id=excluded.account_id,store_name=excluded.store_name,"
+                "platform=excluded.platform,order_money=excluded.order_money,rebate_money=excluded.rebate_money,"
+                "status=excluded.status,promotion_order_id=excluded.promotion_order_id,"
+                "platform_order_id=excluded.platform_order_id,order_type=excluded.order_type,"
+                "rebate_ratio=excluded.rebate_ratio,updated_time=excluded.updated_time,"
+                "settled_time=COALESCE(xc_orders.settled_time,excluded.settled_time)",
+                tuple(data[key] for key in ("account_id", "order_sn", "store_name", "platform",
+                    "order_money", "rebate_money", "status", "promotion_order_id",
+                    "platform_order_id", "order_type", "rebate_ratio", "created_time",
+                    "settled_time", "updated_time")),
+            )
+            synced += 1
+        if len(raw_orders) < page_size:
+            break
+    return synced
+
+
+def sync_orders(accounts: list[dict], *, limit: int = 200) -> dict:
+    synced = 0
+    errors = []
+    for account in accounts:
+        try:
+            synced += sync_account_orders(account, limit=limit)
+        except Exception as exc:
+            errors.append({"account_id": account.get("id"), "message": str(exc)[:200]})
+    return {"synced": synced, "accounts": len(accounts), "errors": errors}
 
 
 def get_order(order_id: int, account_ids: list[int] | None = None) -> dict | None:

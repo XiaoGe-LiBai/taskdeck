@@ -136,6 +136,7 @@ export {
   setWatchStatusAction,
   startMeituanAuthAction,
   submitPlatformIdAction,
+  syncOrdersAction,
   updateOrderAction,
   updateWatchAction,
 } from './xiaocan';

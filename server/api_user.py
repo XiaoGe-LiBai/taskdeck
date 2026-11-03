@@ -1022,12 +1022,51 @@ def _my_account_ids() -> list[int] | None:
 
 # ---------------------------------------------------------------- 霸王餐订单
 
+def _visible_xiaocan_accounts(account_id: int | None = None) -> list[dict]:
+    account_ids = _my_account_ids()
+    sql, args = "SELECT * FROM accounts WHERE status='enabled'", ()
+    if account_id is not None:
+        if account_ids is not None and account_id not in account_ids:
+            return []
+        sql += " AND id=?"
+        args = (account_id,)
+    elif account_ids is not None:
+        if not account_ids:
+            return []
+        sql += f" AND id IN ({','.join('?' * len(account_ids))})"
+        args = tuple(account_ids)
+    return [dict(row) for row in core.query(sql, args)]
+
+
 @bp.get("/xiaocan/orders")
 @core.require_login
 def xiaocan_orders_list():
     status = (request.args.get("status") or "").strip()
+    platform = (request.args.get("platform") or "").strip()
+    keyword = (request.args.get("keyword") or "").strip()
+    raw_account_id = (request.args.get("account_id") or "").strip()
+    account_id = int(raw_account_id) if raw_account_id.isdigit() else None
     limit = int(request.args.get("limit", 100) or 100)
-    return core.ok({"orders": xiaocan_orders.list_orders(_my_account_ids(), status=status, limit=limit)})
+    sync_result = None
+    if str(request.args.get("sync") or "").lower() in ("1", "true", "yes"):
+        sync_result = xiaocan_orders.sync_orders(_visible_xiaocan_accounts(account_id), limit=limit)
+    orders = xiaocan_orders.list_orders(
+        _my_account_ids(), status=status, account_id=account_id, platform=platform,
+        keyword=keyword, limit=limit,
+    )
+    return core.ok({"orders": orders, "sync": sync_result})
+
+
+@bp.post("/xiaocan/orders/sync")
+@core.require_login
+def xiaocan_orders_sync():
+    body = request.get_json(silent=True) or {}
+    account_id = int(body.get("account_id")) if str(body.get("account_id") or "").isdigit() else None
+    accounts = _visible_xiaocan_accounts(account_id)
+    if account_id is not None and not accounts:
+        return core.fail("账号不存在")
+    result = xiaocan_orders.sync_orders(accounts, limit=int(body.get("limit") or 200))
+    return core.ok(result)
 
 
 @bp.post("/xiaocan/orders")

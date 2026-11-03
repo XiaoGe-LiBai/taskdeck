@@ -393,6 +393,32 @@ export async function claimMeituanAction(): Promise<{ ok: boolean; msg: string; 
 
 // ---------------------------------------------------------------- 霸王餐订单
 
+export type OrderSyncResult = {
+  synced: number;
+  accounts: number;
+  errors: Array<{ account_id?: number; message: string }>;
+};
+
+export async function syncOrdersAction(accountId?: number): Promise<{ ok: boolean; msg: string; result?: OrderSyncResult }> {
+  const resp = await panelSend<OrderSyncResult>('POST', '/xiaocan/orders/sync', {
+    account_id: accountId || undefined,
+    limit: 200,
+  });
+  if (!resp.ok || !resp.data) {
+    return { ok: false, msg: resp.msg || '同步失败' };
+  }
+  revalidatePath('/dashboard/assistant');
+  revalidatePath('/dashboard/history');
+  const failed = resp.data.errors.length;
+  return {
+    ok: true,
+    msg: failed
+      ? `已同步 ${resp.data.synced} 条，${failed} 个账号失败`
+      : `已同步 ${resp.data.synced} 条平台订单`,
+    result: resp.data,
+  };
+}
+
 export type XcOrder = {
   id: number;
   account_id: number | null;

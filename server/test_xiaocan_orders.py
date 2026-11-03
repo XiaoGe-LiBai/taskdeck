@@ -73,6 +73,55 @@ class CrudTests(Base):
         self.assertIsNone(orders.get_order(order["id"]))
 
 
+class SyncOrderTests(Base):
+    def test_sync_imports_real_order_and_updates_status(self) -> None:
+        account = dict(core.query_one("SELECT * FROM accounts WHERE id=?", (self.account_id,)))
+        raw = {
+            "order_id_str": "90000001",
+            "promotion_order_id": 90000001,
+            "store_platform": 2,
+            "store_platform_order_money": 3590,
+            "user_rebate": 1800,
+            "order_status": 1,
+            "order_time": 1793680000,
+            "platform_order_id": "ELM-1",
+            "store_promotion": {"store": {"name": "同步测试店"}},
+        }
+        with mock.patch.object(methods, "call", return_value={"order_list": [raw]}) as call:
+            self.assertEqual(orders.sync_account_orders(account), 1)
+        body = call.call_args.args[2]
+        self.assertEqual(body, {"order_status": 99, "offset": 0, "number": 50})
+        imported = orders.list_orders([self.account_id])[0]
+        self.assertEqual(imported["store_name"], "同步测试店")
+        self.assertEqual(imported["platform"], "eleme")
+        self.assertEqual(imported["order_money"], 35.9)
+        self.assertEqual(imported["rebate_money"], 18.0)
+        self.assertEqual(imported["status"], "auditing")
+
+        raw["order_status"] = 2
+        raw["user_rebate"] = 2000
+        with mock.patch.object(methods, "call", return_value={"order_list": [raw]}):
+            orders.sync_account_orders(account)
+        updated = orders.list_orders([self.account_id])[0]
+        self.assertEqual(updated["status"], "completed")
+        self.assertEqual(updated["rebate_money"], 20.0)
+        self.assertTrue(updated["settled_time"])
+
+    def test_filters_by_account_platform_and_keyword(self) -> None:
+        self.make(store_name="咖啡店", platform="meituan", order_sn="MT-1")
+        self.make(store_name="奶茶店", platform="eleme", order_sn="EL-2")
+        self.assertEqual(len(orders.list_orders(None, platform="eleme")), 1)
+        self.assertEqual(len(orders.list_orders(None, keyword="咖啡")), 1)
+        self.assertEqual(orders.list_orders([999], account_id=self.account_id), [])
+
+    def test_sync_continues_after_one_account_fails(self) -> None:
+        accounts = [{"id": 1}, {"id": 2}]
+        with mock.patch.object(orders, "sync_account_orders", side_effect=[RuntimeError("坏凭据"), 3]):
+            result = orders.sync_orders(accounts)
+        self.assertEqual(result["synced"], 3)
+        self.assertEqual(result["errors"][0]["account_id"], 1)
+
+
 class SubmitPlatformIdTests(Base):
     def test_body_and_local_status(self) -> None:
         order = self.make(order_sn="abc12345678")
