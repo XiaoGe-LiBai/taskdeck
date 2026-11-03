@@ -119,7 +119,7 @@ def vip_sign(account: dict, params: dict) -> str:
 
 def free_lottery(account: dict, params: dict) -> str:
     """免费开红包与抽奖：先领全部免费机会，再按间隔把次数开完。"""
-    gap = max(0.2, float(params.get("draw_sec") or 0.8))
+    gap = max(0.1, min(5.0, float(params.get("draw_sec") or 0.35)))
     claimed = 0
     for lottery_type in FREE_LOTTERY_TYPES:
         try:
@@ -219,30 +219,60 @@ def flash_sale(account: dict, params: dict) -> str:
 
 
 def dual_rebate(account: dict, params: dict) -> str:
-    """同店双返利巡检：按参数扫附近门店，同店出现多个方案就推送。"""
+    """Persist a per-account baseline and notify confirmed changes."""
     scan_params = {
         "lat": params.get("lat") or account.get("latitude") or "",
         "lon": params.get("lon") or account.get("longitude") or "",
         "city_code": params.get("city_code") or account.get("city_code") or "",
-        "limit": max(20, min(_num(params.get("max_stores"), 300), 800)),
+        "limit": max(1, min(_num(params.get("max_stores"), 300), 800)),
         "keyword": str(params.get("keyword") or "").strip(),
     }
     if not (scan_params["lat"] and scan_params["lon"]):
-        # 附近门店必须按真实位置查，没有定位就明确报错，不要拿空坐标去扫
-        raise ValueError("该账号没有定位坐标，请先在账号里设置定位后再开同店双返利监控")
-    found = store_watch.probe(account, "dual", scan_params)
-    keyword = scan_params["keyword"]
-    if keyword:
-        # probe 的 dual 分支只做「同店多方案」聚合，关键词要在这里收口才算真生效
-        found = [item for item in found if keyword in item["title"]]
-    if not found:
-        return "本轮没有同店多方案"
-    lines = [f"{item['title']}：{item['detail']}" for item in found[:10]]
-    notify.notify_async(
-        f"发现 {len(found)} 家同店多方案",
-        "账号 " + (account.get("nickname") or account.get("account_info") or "") + "：\n" + "\n".join(lines),
-    )
-    return f"发现 {len(found)} 家同店多方案"
+        raise ValueError("该账号没有定位坐标，请先设置定位")
+    groups = store_watch.dual_groups(account, scan_params)
+    current = {str(group["name"]): group for group in groups}
+    conn = core.get_db()
+    conn.execute("""CREATE TABLE IF NOT EXISTS xc_dual_rebate_snapshots (
+        account_id INTEGER PRIMARY KEY, snapshot TEXT NOT NULL, updated_at TEXT NOT NULL
+    )""")
+    row = core.query_one("SELECT snapshot FROM xc_dual_rebate_snapshots WHERE account_id=?", (account["id"],))
+    import json
+    saved = json.loads(row["snapshot"]) if row else {}
+    if isinstance(saved, dict) and "stores" in saved:
+        previous = saved.get("stores") or {}
+        pending = saved.get("pending_missing") or {}
+    else:
+        previous, pending = saved, {}
+    if not row:
+        conn.execute("INSERT OR REPLACE INTO xc_dual_rebate_snapshots(account_id,snapshot,updated_at) VALUES(?,?,?)",
+                     (account["id"], json.dumps({"stores": current, "pending_missing": {}}, ensure_ascii=False), core.iso()))
+        if params.get("notify_on_initial", True) and current:
+            notify.notify_async(f"同店多方案基准：{len(current)} 家", "、".join(list(current)[:20]))
+        return f"建立首轮基准：{len(current)} 家"
+
+    previous = previous if isinstance(previous, dict) else {}
+    pending = dict(pending or {})
+    new_names = set(current) - set(previous)
+    gone_names = set(previous) - set(current)
+    removed = set()
+    if params.get("confirm_removal", True):
+        for name in gone_names:
+            pending[name] = int(pending.get(name) or 0) + 1
+            if pending[name] >= 2:
+                removed.add(name)
+                pending.pop(name, None)
+        for name in set(current):
+            pending.pop(name, None)
+    else:
+        removed = gone_names
+    confirmed_previous = {name: previous[name] for name in set(previous) - removed}
+    updated = {**confirmed_previous, **current}
+    conn.execute("INSERT OR REPLACE INTO xc_dual_rebate_snapshots(account_id,snapshot,updated_at) VALUES(?,?,?)",
+                 (account["id"], json.dumps({"stores": updated, "pending_missing": pending}, ensure_ascii=False), core.iso()))
+    if new_names or removed:
+        changes = [*(f"新增：{name}" for name in sorted(new_names)), *(f"确认下架：{name}" for name in sorted(removed))]
+        notify.notify_async("同店多方案变化", "\n".join(changes[:30]))
+    return f"当前 {len(current)} 家，新增 {len(new_names)} 家，确认下架 {len(removed)} 家"
 
 
 RUNNERS: dict[str, Callable[[dict, dict], str]] = {

@@ -495,6 +495,139 @@ export const XiaocanSniping = (props: {
     );
   };
 
+  const selectedPlan = (row: StoreRow, kind: 'fixed' | 'percent') => {
+    const plans = kind === 'fixed' ? row.fixed : row.percent;
+    const key = `${row.key}:${kind}`;
+    const selected = picked[key];
+    return plans.find(plan => promoId(plan) === selected) ?? plans[0];
+  };
+
+  const openPlanDialog = (plan: StoreItem, mode: 'appointment' | 'stock') => {
+    setAppointmentMode(mode);
+    setAdvance(false);
+    setEarlyMs(0);
+    setRedpackId('');
+    setRedpackMode(0);
+    setIntervalSec(5);
+    setTimeoutMinutes(60);
+    setAppointment(plan);
+  };
+
+  const renderFiveTable = (list: StoreRow[], emptyText: string) => {
+    if (!list.length) {
+      return <Empty text={emptyText} />;
+    }
+    const kinds: Array<'fixed' | 'percent'> = ['fixed', 'percent'];
+    return (
+      <div className="-mx-1 overflow-x-auto">
+        <table className="w-full min-w-[1120px] border-separate border-spacing-y-2 px-1">
+          <thead>
+            <tr className="text-left text-xs text-muted-foreground">
+              <th className="w-[28%] px-3 pb-1 font-medium">店铺信息</th>
+              <th className="w-[24%] px-3 pb-1 font-medium">返利规则</th>
+              <th className="w-[12%] px-3 pb-1 font-medium">剩余名额</th>
+              <th className="w-[16%] px-3 pb-1 font-medium">活动时段</th>
+              <th className="w-[20%] px-3 pb-1 font-medium">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map(row => (
+              <tr key={row.key} className="bg-card align-top">
+                <td className="rounded-l-lg border border-r-0 p-3">
+                  <div className="flex items-start gap-2.5">
+                    <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted text-sm font-semibold text-muted-foreground">
+                      {row.icon ? <img src={row.icon} alt="" className="size-full object-cover" loading="lazy" /> : row.name.slice(0, 1)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Tag tone="info">美团外卖</Tag>
+                        <span className="truncate text-sm font-medium">{row.name}</span>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+                        <Tag tone="gray">{distanceText(row.distance)}</Tag>
+                        {row.redpack && <Tag tone="danger">可用红包</Tag>}
+                        {row.category && <span className="text-muted-foreground">{row.category}</span>}
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">{`门店营业：${row.hours || '00:00-23:59'}`}</div>
+                      <div className="truncate text-[11px] text-muted-foreground">{`地址：${row.address || '依据外卖平台定位'}`}</div>
+                    </div>
+                  </div>
+                </td>
+                <td className="border-y p-3">
+                  <div className="flex flex-col gap-3">
+                    {kinds.map(kind => {
+                      const plans = kind === 'fixed' ? row.fixed : row.percent;
+                      const active = selectedPlan(row, kind);
+                      if (!active) return null;
+                      const pickKey = `${row.key}:${kind}`;
+                      return (
+                        <div key={kind} className="flex flex-col gap-1.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Tag tone={kind === 'fixed' ? 'info' : 'success'}>{kind === 'fixed' ? '实付满返' : '按比例返'}</Tag>
+                            <span className="text-sm font-semibold">{kind === 'fixed' ? fixedDesc(active) : percentDesc(active)}</span>
+                          </div>
+                          {plans.length > 1 && (
+                            <div className="flex flex-wrap gap-1">
+                              {plans.map((plan, index) => {
+                                const id = promoId(plan);
+                                const chosen = promoId(active) === id;
+                                return <button key={id || index} type="button" onClick={() => setPicked(prev => ({ ...prev, [pickKey]: id }))} className={`rounded border px-2 py-0.5 text-[11px] ${chosen ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}>{`档位 ${index + 1}`}</button>;
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {!row.fixed.length && !row.percent.length && <span className="text-xs text-muted-foreground">暂无返利方案</span>}
+                  </div>
+                </td>
+                <td className="border-y p-3">
+                  <div className="flex flex-col gap-3">
+                    {kinds.map(kind => {
+                      const plan = selectedPlan(row, kind);
+                      if (!plan) return null;
+                      const left = leftOf(plan);
+                      return <div key={kind} className="flex flex-col gap-1"><Tag tone={left === null ? 'gray' : left > 0 ? (kind === 'fixed' ? 'info' : 'success') : 'danger'}>{left === null ? '不限量' : left > 0 ? `余 ${left} 单` : '已领完'}</Tag><span className="text-[10px] text-muted-foreground">{kind === 'fixed' ? '实付满返' : '按比例返'}</span></div>;
+                    })}
+                  </div>
+                </td>
+                <td className="border-y p-3">
+                  <div className="flex flex-col gap-3">
+                    {kinds.map(kind => {
+                      const plan = selectedPlan(row, kind);
+                      if (!plan) return null;
+                      const state = windowOf(plan);
+                      return <div key={kind} className="flex flex-col gap-1"><span className="font-mono text-xs">{slotText(plan)}</span><Tag tone={state === 'active' ? 'success' : state === 'before' ? 'info' : 'gray'}>{state === 'active' ? '进行中' : state === 'before' ? `未开抢 · ${minutesUntil(plan)} 分后` : '已结束'}</Tag></div>;
+                    })}
+                  </div>
+                </td>
+                <td className="rounded-r-lg border border-l-0 p-3">
+                  <div className="flex flex-col gap-2">
+                    {kinds.map(kind => {
+                      const plan = selectedPlan(row, kind);
+                      if (!plan) return null;
+                      const id = promoId(plan);
+                      const left = leftOf(plan);
+                      const state = windowOf(plan);
+                      const busy = pending === `grab-${id}`;
+                      return <div key={kind} className="flex flex-wrap items-center gap-1.5">
+                        <Tag tone={kind === 'fixed' ? 'info' : 'success'}>{kind === 'fixed' ? '满返' : '比例'}</Tag>
+                        {state === 'before' && <button type="button" onClick={() => openPlanDialog(plan, 'appointment')} className="rounded-md border px-2 py-1 text-xs">预约抢单</button>}
+                        {state === 'active' && left !== null && left <= 0 && <button type="button" onClick={() => openPlanDialog(plan, 'stock')} className="rounded-md border px-2 py-1 text-xs">监听名额</button>}
+                        {state === 'active' && (left === null || left > 0) && <button type="button" disabled={busy} onClick={() => void grab(id)} className="rounded-md bg-brand-gradient px-2.5 py-1 text-xs text-white disabled:opacity-50">{busy ? '抢单中…' : '立即抢单'}</button>}
+                        {state === 'after' && <Tag tone="gray">已结束</Tag>}
+                      </div>;
+                    })}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   const renderTable = (list: StoreRow[], emptyText: string) => {
     if (!list.length) {
       return <Empty text={emptyText} />;
@@ -750,8 +883,8 @@ export const XiaocanSniping = (props: {
         </div>
       )}
       <div className="mt-3">
-        {tab === 'stores' && renderTable(normalRows, '暂无附近店铺')}
-        {tab === 'brand' && renderTable(brandRows, '当前列表里没有需要大牌券的店')}
+        {tab === 'stores' && renderFiveTable(normalRows, '暂无附近店铺')}
+        {tab === 'brand' && renderFiveTable(brandRows, '当前列表里没有需要大牌券的店')}
         {tab === 'dual' && renderTable(dualRows, '附近没有同时有满返与比例返的店')}
         {tab === 'appointments' && (
           <div className="flex flex-col gap-2">

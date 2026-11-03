@@ -309,7 +309,7 @@ def best_redpack_id(account: dict) -> int | None:
     """Resolve the upstream's highest-value usable red packet."""
     response = _call(account, "get_user_max_redpack", {})
     candidates = []
-    for key in ("rep_pack", "redpack", "user_red_pack", "max_red_pack"):
+    for key in ("meituan_red_pack", "eleme_red_pack", "rep_pack", "redpack", "user_red_pack", "max_red_pack"):
         value = response.get(key)
         if isinstance(value, dict):
             candidates.append(value)
@@ -319,11 +319,13 @@ def best_redpack_id(account: dict) -> int | None:
             candidates.extend(value for value in values if isinstance(value, dict))
     if not candidates:
         return None
-    usable = [item for item in candidates if int(item.get("user_red_pack_id") or item.get("id") or 0) > 0]
+    def redpack_id(item):
+        return int(item.get("user_red_pack_id") or item.get("red_pack_id") or item.get("id") or 0)
+    usable = [item for item in candidates if redpack_id(item) > 0]
     if not usable:
         return None
-    selected = max(usable, key=lambda item: int(item.get("reward_num") or item.get("value_num") or 0))
-    return int(selected.get("user_red_pack_id") or selected.get("id"))
+    selected = max(usable, key=lambda item: int(item.get("value_num") or item.get("reward_num") or item.get("prize_value") or item.get("amount") or item.get("value") or 0))
+    return redpack_id(selected)
 
 
 def promotion_stock(account: dict, promotion_id, *, store_platform: int = 1, city_code=None) -> int:
